@@ -7,9 +7,14 @@ import Testing
 struct LoginItemAvailabilityTests {
     let none: [String: String] = [:]
 
+    /// Where installers put the app: an Applications folder on macOS; on Windows
+    /// `%LOCALAPPDATA%\Programs` (scripts/windows/install.ps1) or Program Files.
+    static let installed = BreakpointPlatform.isWindows
+        ? ["C:/Users/dev/AppData/Local/Programs/Breakpoint", "C:/Program Files/Breakpoint"]
+        : ["/Applications/Breakpoint.app", "/Users/dev/Applications/Breakpoint.app", "/Applications/Utilities/Breakpoint.app"]
+
     @Test func onlyFromAnApplicationsFolder() {
-        for path in ["/Applications/Breakpoint.app", "/Users/dev/Applications/Breakpoint.app",
-                     "/Applications/Utilities/Breakpoint.app"] {
+        for path in Self.installed {
             let availability = LoginItemAvailability.evaluate(bundlePath: path, isAppBundle: true, environment: none)
             #expect(availability == .available, "\(path)")
             #expect(availability.allowsRegistering && availability.allowsUnregistering && !availability.defaultsToOff)

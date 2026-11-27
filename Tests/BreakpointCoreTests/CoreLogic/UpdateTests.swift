@@ -127,8 +127,10 @@ struct UpdateTests {
 
     @Test func theFeedAddressIsInsideTheRepository() {
         #expect(UpdateFeed.isTrusted(UpdateFeed.url))
+        // One feed per platform: installed Macs keep reading update-feed.json.
         #expect(UpdateFeed.url.absoluteString
-                == "https://github.com/estrindavid/breakpoint/releases/latest/download/update-feed.json")
+                == "https://github.com/estrindavid/breakpoint/releases/latest/download/"
+                + (BreakpointPlatform.isWindows ? "update-feed-windows.json" : "update-feed.json"))
     }
 
     @Test func minimumSystemVersion() {
