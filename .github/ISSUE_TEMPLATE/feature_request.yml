@@ -1,0 +1,39 @@
+name: Feature request
+description: Suggest a change to what Breakpoint does.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Breakpoint is deliberately small and quiet. [docs/SPEC.md](https://github.com/estrindavid/breakpoint/blob/main/docs/SPEC.md)
+        describes everything it does, and §1 lists the principles every change must keep (no permission prompts,
+        nothing about you leaves your Mac, no medical claims, no streaks or scores). §2.10 lists what is out of scope.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The situation
+      description: What you were doing, and what Breakpoint did or did not do. Describe the situation before the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like instead
+      description: The change you have in mind, as someone using the app would see it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Other ways you considered
+      description: Optional. Settings or workarounds you tried, or other designs.
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I would like to implement this myself once the design is agreed (see CONTRIBUTING.md).

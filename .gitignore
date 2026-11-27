@@ -1,0 +1,15 @@
+.build/
+build/
+.DS_Store
+*.xcodeproj
+.swiftpm/
+xcuserdata/
+DerivedData/
+*.log
+
+# Local Claude Code settings (per person, per machine)
+.claude/
+
+# The README hero: render.sh's working files and its temporary link
+docs/readme/src/tmp/
+docs/readme/src/snap

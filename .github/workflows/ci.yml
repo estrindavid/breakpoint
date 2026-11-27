@@ -1,0 +1,63 @@
+# Checks every pull request and every push to main: a debug build with zero warnings, the unit
+# tests (scripts/test.sh) and the end-to-end flows (scripts/e2e.sh: the debug app headless, with
+# temporary home folders, driven through the CLI). See CONTRIBUTING.md.
+#
+# Safe for pull requests from forks: `pull_request` (never `pull_request_target`), a read-only
+# token, no secrets, and checkout without stored credentials.
+#
+# No build cache, on purpose: Swift prints a warning only when it compiles the file, so a restored
+# .build would hide warnings in files the change did not touch. A clean debug build takes a few
+# minutes on the runner.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # A new push to a pull request cancels its older run; runs on main are never cancelled.
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    # This name is the status check that branch protection requires (docs/MAINTAINING.md).
+    name: Build and test
+    # Same runner as the release workflow: the code needs the macOS 26 SDK.
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Toolchain
+        run: |
+          swift --version
+          xcode-select -p
+          xcrun --show-sdk-version
+
+      - name: Build with zero warnings
+        run: |
+          set -o pipefail
+          swift build 2>&1 | tee "$RUNNER_TEMP/build.log"
+          if grep -E ': warning: |^warning: ' "$RUNNER_TEMP/build.log"; then
+            echo "::error::The build has warnings (listed above). The project builds with zero warnings."
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: |
+          set -o pipefail
+          scripts/test.sh 2>&1 | tee "$RUNNER_TEMP/test.log"
+          if grep -E ': warning: |^warning: ' "$RUNNER_TEMP/test.log"; then
+            echo "::error::Building the tests produced warnings (listed above)."
+            exit 1
+          fi
+
+      - name: End-to-end flows
+        run: scripts/e2e.sh -v

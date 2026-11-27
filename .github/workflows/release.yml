@@ -1,0 +1,162 @@
+# Builds and publishes a release when a version tag is pushed (scripts/release.sh does that).
+# See docs/RELEASING.md.
+#
+#   tag v0.3.0  →  tests → build/Breakpoint.app (ad-hoc signed) → Breakpoint-0.3.0.zip, signed with
+#   the release key → update-feed.json, install.sh, SHA256SUMS → GitHub release "Breakpoint 0.3.0"
+#
+# One repository secret: UPDATE_SIGNING_KEY, the release key's private half, set once by
+# scripts/release-keygen.sh, which also writes the public half into UpdateKey.swift. A real release
+# fails at once if either is missing (an unsigned release could never update itself); run
+# scripts/release-keygen.sh and commit the public key first. A dry run signs with a throwaway key
+# and needs neither. No Apple account or certificate is involved
+# (Developer ID signing and notarization could be added later; see docs/RELEASING.md).
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "An existing tag to build again, e.g. v0.3.0 (leave empty for a dry run)"
+        required: false
+      dry_run:
+        description: "Dry run: test, build, package and sign with a throwaway key; publish nothing"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.dry_run && 'dry-run' || inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # The app uses macOS 26 APIs behind availability checks, so it needs the macOS 26 SDK.
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      DRY_RUN: ${{ inputs.dry_run || false }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0 # the build number is the commit count
+
+      - name: Read the version and the line of notes
+        run: |
+          set -euo pipefail
+          IN_FILE="$(sed -n 's/.*static let current = "\(.*\)".*/\1/p' Sources/BreakpointCore/Models/Version.swift)"
+          if [[ "$DRY_RUN" == true ]]; then
+            echo "VERSION=$IN_FILE" >> "$GITHUB_ENV"
+            echo "NOTES=Dry run." >> "$GITHUB_ENV"
+            swift --version
+            exit 0
+          fi
+          [[ "$TAG" == v*.*.* ]] || { echo "::error::Give a tag like v0.3.0, or tick dry run."; exit 1; }
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          VERSION="${TAG#v}"
+          if [[ "$VERSION" != "$IN_FILE" ]]; then
+            echo "::error::The tag says $VERSION but Version.swift says $IN_FILE. Use scripts/release.sh, which sets both."
+            exit 1
+          fi
+          NOTES="$(git tag -l --format='%(contents:subject)' "$TAG")"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "NOTES=$NOTES" >> "$GITHUB_ENV"
+          [[ "$VERSION" == *-* ]] && echo "PRERELEASE=1" >> "$GITHUB_ENV" || true
+          swift --version
+
+      - name: Real release only, the release key must exist
+        if: env.DRY_RUN != 'true'
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          FIX="Run scripts/release-keygen.sh and commit the public key it writes first (docs/RELEASING.md); an unsigned release could never update itself."
+          if ! grep -q 'publicKeyBase64: String? = "' Sources/BreakpointCore/Updates/UpdateKey.swift; then
+            echo "::error::UpdateKey.publicKeyBase64 is nil in $TAG. $FIX"
+            exit 1
+          fi
+          if [[ -z "${UPDATE_SIGNING_KEY:-}" ]]; then
+            echo "::error::The repository secret UPDATE_SIGNING_KEY is missing. $FIX"
+            exit 1
+          fi
+          echo "The release key is set and its public half is committed."
+
+      - name: Dry run only, a throwaway key so the signing path runs
+        if: env.DRY_RUN == 'true'
+        run: |
+          set -euo pipefail
+          KEY="$(swift scripts/update-signing.swift keygen "$RUNNER_TEMP/public")"
+          echo "::add-mask::$KEY"
+          echo "DRY_RUN_KEY=$KEY" >> "$GITHUB_ENV"
+          sed -i '' -E "s#publicKeyBase64: String\\? = (nil|\"[^\"]*\")#publicKeyBase64: String? = \"$(tr -d '[:space:]' < "$RUNNER_TEMP/public")\"#" Sources/BreakpointCore/Updates/UpdateKey.swift
+          grep -n publicKeyBase64 Sources/BreakpointCore/Updates/UpdateKey.swift
+
+      - name: Tests
+        run: scripts/test.sh
+
+      - name: Build the app
+        env:
+          # One universal app: Apple silicon and Intel Macs (macOS 14 and 15 run on both).
+          BREAKPOINT_ARCHS: arm64 x86_64
+        run: scripts/build-app.sh
+
+      - name: Package and sign
+        env:
+          # A dry run never sees the real key, even if its throwaway key is somehow empty.
+          UPDATE_SIGNING_KEY: ${{ env.DRY_RUN == 'true' && (env.DRY_RUN_KEY || 'dry-run-key-missing') || secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          scripts/package-release.sh build/Breakpoint.app "$VERSION" "$NOTES" build/release
+          cat build/release/update-feed.json build/release/SHA256SUMS
+
+      - name: Dry run only, install from the packaged files
+        if: env.DRY_RUN == 'true'
+        run: |
+          set -euo pipefail
+          BREAKPOINT_INSTALL_BASE="file://$PWD/build/release" BREAKPOINT_INSTALL_DIR="$RUNNER_TEMP/Applications" bash build/release/install.sh
+          APP="$RUNNER_TEMP/Applications/Breakpoint.app"
+          codesign --verify --strict "$APP"
+          # Each architecture of the installed app runs: Intel's under Rosetta. The CLI prints its
+          # version; the app starts with a temporary home, answers the CLI over its socket, and
+          # quits by itself with exit status 0.
+          arch -x86_64 /usr/bin/true 2> /dev/null || sudo softwareupdate --install-rosetta --agree-to-license
+          for ARCH in arm64 x86_64; do
+            arch "-$ARCH" "$APP/Contents/Helpers/breakpoint" --version
+            HOME_DIR="$(mktemp -d "$RUNNER_TEMP/bp.XXXXXX")"
+            mkdir -p "$HOME_DIR/Library/Application Support/Breakpoint"
+            echo '{"version":1,"hasCompletedOnboarding":true}' > "$HOME_DIR/Library/Application Support/Breakpoint/settings.json"
+            BREAKPOINT_HOME="$HOME_DIR" arch "-$ARCH" "$APP/Contents/MacOS/Breakpoint" --quit-after 20 &
+            PID=$!
+            ANSWERED=""
+            for _ in $(seq 1 30); do
+              if BREAKPOINT_HOME="$HOME_DIR" arch "-$ARCH" "$APP/Contents/Helpers/breakpoint" status > /dev/null; then
+                ANSWERED=1
+                break
+              fi
+              sleep 0.5
+            done
+            wait "$PID" || { echo "::error::Breakpoint ($ARCH) did not quit cleanly"; exit 1; }
+            [[ -n "$ANSWERED" ]] || { echo "::error::Breakpoint ($ARCH) never answered breakpoint status"; exit 1; }
+            echo "ok: Breakpoint ($ARCH) started, answered and quit"
+          done
+
+      - name: Publish the release
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ASSETS=(build/release/Breakpoint-$VERSION.zip build/release/update-feed.json build/release/install.sh
+                  build/release/SHA256SUMS)
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" "${ASSETS[@]}" --clobber
+          else
+            gh release create "$TAG" "${ASSETS[@]}" --verify-tag --title "Breakpoint $VERSION" \
+              --notes-file build/release/release-notes.md --generate-notes ${PRERELEASE:+--prerelease}
+          fi
+          echo "Published: $(gh release view "$TAG" --json url --jq .url)"

@@ -1,0 +1,45 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="kit.css"><script src="kit.js"></script>
+<style>
+  .tile { height: 540px; }
+  .lockup { position: absolute; left: 0; right: 0; top: 52px; display: flex; justify-content: center; align-items: center; gap: 15px; }
+  .lockup svg { display: block; filter: drop-shadow(0 0 24px rgba(61,214,176,.38)); }
+  .name { font-family: "BP Rounded"; font-weight: 700; font-size: 52px; letter-spacing: -0.02em; line-height: 1; }
+  .line { position: absolute; left: 0; right: 0; top: 122px; margin: 0; text-align: center;
+          font-family: "BP Rounded"; font-weight: 600; font-size: 26px; line-height: 1.2; letter-spacing: -0.01em; color: rgba(255,255,255,.62); }
+  .line b { color: #fff; font-weight: 600; }
+  .halo { position: absolute; left: 95px; top: 196px; width: 640px; height: 360px; border-radius: 30px;
+          box-shadow: 0 -10px 90px 10px rgba(61,214,176,.30), 60px 0 120px 20px rgba(108,124,255,.30); }
+  .screen { left: 95px; top: 196px; }
+  .reflect { position: absolute; left: 95px; top: 196px; width: 640px; height: 344px; border-radius: 14px 14px 0 0; pointer-events: none; z-index: 4;
+             background: linear-gradient(165deg, rgba(255,255,255,.06), rgba(255,255,255,0) 30%); }
+  .nudge { position: absolute; left: 506px; top: 432px; z-index: 5; }
+  .fade { position: absolute; left: 0; right: 0; bottom: 0; height: 70px; z-index: 3;
+          background: linear-gradient(to bottom, rgba(5,7,12,0), rgba(5,7,12,.55)); }
+</style></head>
+<body>
+<div class="tile">
+  <div class="aurora">
+    <div class="blob white"  style="left:115px; top:-210px; width:600px; height:380px"></div>
+    <div class="blob mint"   style="left:-180px; top:250px; width:560px; height:420px"></div>
+    <div class="blob indigo" style="left:470px; top:250px; width:560px; height:440px"></div>
+    <div class="blob teal"   style="left:200px; top:420px; width:420px; height:260px"></div>
+    <div class="grain"></div>
+  </div>
+
+  <div class="lockup"><span data-mark="brand" data-h="42"></span><span class="name">Breakpoint</span></div>
+  <p class="line"><b>Break reminders</b> that wait for your agent.</p>
+
+  <div class="halo"></div>
+  <div class="screen">
+    <div class="crop" data-src="snap/break/overlay-move-middle-wallpaper-dark@2x.png" data-rect="0,0,3024,1964" data-scale="0.4153"></div>
+  </div>
+  <div class="reflect"></div>
+  <div class="fade"></div>
+
+  <div class="nudge float">
+    <div class="crop" style="position:relative" data-src="snap/break/nudge-move-on-dark@2x.png" data-rect="80,80,820,238" data-radius="28" data-scale="0.72"></div>
+  </div>
+</div>
+</body></html>
