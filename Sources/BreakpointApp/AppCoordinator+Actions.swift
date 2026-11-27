@@ -124,7 +124,10 @@ extension AppCoordinator {
             installUpdate: { [weak self] in self?.installUpdate(automatic: false) },
             replayTour: { [weak self] in self?.replayTour() },
             tour: { [weak self] input in self?.handleTour(input) },
-            popoverVisibilityChanged: { [weak self] open in self?.popoverVisibilityChanged(open) })
+            popoverVisibilityChanged: { [weak self] open in self?.popoverVisibilityChanged(open) },
+            popoverMayClose: { [weak self] cause, pointerOnPopover in
+                self?.popoverMayClose(cause, pointerOnPopover: pointerOnPopover)
+            })
     }
 
     // MARK: - Breaks

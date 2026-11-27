@@ -62,7 +62,8 @@ update path), `debug update-feed FILE|fail|none` (the update check's feed; an ar
 is read from the same folder: the harness never reaches the network), `debug update-key BASE64` and
 `debug update-location APP` (a throwaway key and a stand-in app bundle for `debug action install-update`),
 `debug install-check unreachable|normal` (the check after Install reaches no app, so it fails and says why),
-`debug tour start|next|skip|popover-closed` (the one-minute tour; `debug state` also shows `hints` and `popover`) and `debug action accept|skip|extend|undo|install claude-code|…`. Example:
+`debug tour start|next|skip|popover-closed` (the one-minute tour; `debug state` also shows `hints` and `popover`),
+`debug popover click-outside|esc|other-app|space|display|menu-bar-hidden [pointer-on]` (what may close the popover; `.popover.closedBy` says what did) and `debug action accept|skip|extend|undo|install claude-code|…`. Example:
 
 ```sh
 export BREAKPOINT_HOME="$(mktemp -d -t bp)"
@@ -74,7 +75,7 @@ export BREAKPOINT_HOME="$(mktemp -d -t bp)"
 .build/debug/breakpoint debug state | jq '.history[-1]'  # move completed
 ```
 
-`scripts/e2e.sh` runs forty-one such flows and must pass after every change. Use the headless
+`scripts/e2e.sh` runs forty-two such flows and must pass after every change. Use the headless
 harness for anything automated: a full-screen overlay or a window taking focus would interrupt
 whoever is working at the Mac. `--demo selftest` and `BREAKPOINT_UI_SELFTEST` show real windows
 (a few seconds each) and are for deliberate, attended checks only.

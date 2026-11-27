@@ -256,11 +256,14 @@ flow_tour() {
   expect_log "the popover opens" "popover shown"
   expect "the popover is open" "$(q .popover.open)" "true"
   expect "no popover hint during the tour" "$(q .popover.hint)" "null"
+  dbg popover menu-bar-hidden
+  expect "the menu bar sliding away does not close the tour's popover" "$(q .popover.open) $(q .tour.step)" "true popover"
   for part in actions totals gear; do dbg tour next; done
   expect "its parts are named one by one" "$(q .tour.part)" "3"
-  dbg tour popover-closed
-  expect "closing the popover → the last card" "$(q .tour.step)" "farewell"
+  dbg popover click-outside
+  expect "a click outside closes the popover → the last card" "$(q .tour.step)" "farewell"
   expect "the popover is closed" "$(q .popover.open)" "false"
+  expect "by that click" "$(q .popover.closedBy)" "clickOutside"
   dbg tour next
   expect "Done ends the tour" "$(q .tour)" "null"
   expect "remembered as finished" "$(q .settings.tourStatus)" "finished"
@@ -1735,6 +1738,54 @@ flow_hints_after_skipped_tour() {
 }
 
 # Someone updating from a version without the tour or hints: neither, until they ask (SPEC §3.12).
+# The popover closes when you leave it, and never hangs on by itself (SPEC §3.8). The real status
+# item reports clicks, Esc, other apps, Spaces, displays and the menu bar sliding away; here the
+# harness reports them the same way (`debug popover`), and the app's own policy decides.
+flow_popover() {
+  flow "the popover closes when you leave it" popover
+  dbg settings '{"showHints": true}'
+  dbg action activate
+  expect "the mark opens the popover" "$(q .popover.open)" "true"
+  expect "the first time with its hint" "$(q .popover.hint)" "Option-click the mark to see why no break yet."
+  dbg popover menu-bar-hidden
+  expect "the hint keeps it open when the menu bar slides away" "$(q .popover.open)" "true"
+  expect_log "and the trace says so" "popover stays open after the menu bar sliding away"
+  dbg popover space
+  expect "a Space switch caused by opening it does not close it" "$(q .popover.open)" "true"
+  dbg advance 1
+  dbg popover click-outside
+  expect "a click outside closes it" "$(q .popover.open)" "false"
+  expect "named in debug state" "$(q .popover.closedBy)" "clickOutside"
+  expect_log "and in the trace" "popover closing: a click outside it"
+  expect "its hint goes with it, once" "$(q .popover.hint)" "null"
+
+  dbg action activate
+  expect "opening it again forgets what closed it last" "$(q .popover.closedBy)" "null"
+  dbg popover menu-bar-hidden pointer-on
+  expect "the menu bar sliding away while the pointer is on it: it stays" "$(q .popover.open)" "true"
+  dbg popover menu-bar-hidden
+  expect "the pointer leaving it while the menu bar is away: it goes" "$(q .popover.open)" "false"
+  expect "closed by the menu bar sliding away" "$(q .popover.closedBy)" "menuBarHidden"
+
+  for pair in other-app:otherAppActive space:spaceChanged display:displayChanged; do
+    dbg action activate
+    dbg advance 1
+    dbg popover "${pair%%:*}"
+    expect "${pair%%:*}: closed" "$(q .popover.open) $(q .popover.closedBy)" "false ${pair##*:}"
+  done
+  dbg action activate
+  dbg popover esc
+  expect "Esc closes it at once" "$(q .popover.open) $(q .popover.closedBy)" "false escape"
+
+  dbg popover click-outside
+  expect "a click with the popover closed changes nothing" "$(q .popover.open) $(q .popover.closedBy)" "false escape"
+  dbg action activate
+  dbg action close-popover
+  expect "the mark (or a command) closes it as before, no cause recorded" "$(q .popover.open) $(q .popover.closedBy)" "false null"
+  expect "it never reopened by itself" "$(bp debug log | grep -c 'popover shown')" "7"
+  end_flow
+}
+
 flow_hints_existing_user() {
   flow "an existing user after an update: no tour, no hints" hints-old
   dbg jump 12:00
@@ -1833,7 +1884,7 @@ flow_status_line() {
   end_flow
 }
 
-ALL=(launch_and_onboarding tour hints_after_tour hints_after_skipped_tour hints_existing_user sessions offers breaks walk walk_ended_early counted saying_no away resume_keeps_needs_you calls presenting dictation commands wind_down settings cursor_relay
+ALL=(launch_and_onboarding tour hints_after_tour hints_after_skipped_tour hints_existing_user popover sessions offers breaks walk walk_ended_early counted saying_no away resume_keeps_needs_you calls presenting dictation commands wind_down settings cursor_relay
      malformed integrations delete_all second_copy occupied_socket signals
      resume_outcome resume_background resume_needs_you_goes resume_commands totals charm updates
      update_install update_reopened update_automatic install_script routines pacing status_line)

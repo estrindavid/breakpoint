@@ -45,6 +45,8 @@ extension AppCoordinator {
         guard open != popoverOpen else { return }
         popoverOpen = open
         if open {
+            popoverOpenedAt = currentDate()
+            popoverClosedBy = nil
             popoverHint = takeHint(.popover) ? HintCopy.popover : nil
         } else {
             popoverHint = nil
@@ -53,6 +55,23 @@ extension AppCoordinator {
             if tour?.step == .popover { handleTour(.popoverClosed) }
         }
         publish()
+    }
+
+    /// Something that may close the popover happened (SPEC §3.8): `PopoverPolicy` decides. Only the
+    /// tour naming its parts, the first-use hint or the pointer on the popover keep it open, and
+    /// only against the menu bar sliding away.
+    func popoverMayClose(_ cause: PopoverCloseCause, pointerOnPopover: Bool) {
+        guard popoverOpen else { return }
+        let context = PopoverPolicy.Context(
+            tourStep: tour?.step == .popover, showsHint: popoverHint != nil, pointerOnPopover: pointerOnPopover,
+            secondsOpen: popoverOpenedAt.map { currentDate().timeIntervalSince($0) } ?? .infinity)
+        guard PopoverPolicy.closes(for: cause, context: context) else {
+            recordSurface("popover stays open after \(cause.phrase)")
+            return
+        }
+        popoverClosedBy = cause
+        recordSurface("popover closing: \(cause.phrase)")
+        closePopover()
     }
 
     /// Closes the popover (headless: as if it closed).
