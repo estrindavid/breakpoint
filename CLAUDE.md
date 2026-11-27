@@ -1,7 +1,9 @@
 # Breakpoint — working notes
 
-Breakpoint is a native macOS menu-bar app: break reminders that wait for your coding agent. These
-notes are for anyone working in the code, people and coding agents alike.
+Breakpoint is a native macOS menu-bar app, and a native Windows tray app from the same package:
+break reminders that wait for your coding agent. These notes are for anyone working in the code,
+people and coding agents alike. Windows specifics: [docs/WINDOWS.md](docs/WINDOWS.md) and
+"Windows" below.
 **[docs/SPEC.md](docs/SPEC.md) is the single source of truth** for behaviour, screens, design,
 integrations and data. [docs/INTERFACES.md](docs/INTERFACES.md) maps the seams between the parts
 of the code. `docs/research/` is background only; where it differs from SPEC.md, SPEC.md wins.
@@ -39,6 +41,22 @@ config file move under it; the login item is never registered). Use it whenever 
 CLI by hand, so you never touch the real configuration of coding agents on your Mac. Keep the path
 short (under `$TMPDIR` is fine): the socket path must fit in 103 bytes, or it falls back to
 `~/.breakpoint/run/bp.sock` under that home.
+
+### Windows
+
+| What | Command (PowerShell) |
+|---|---|
+| Build (debug), zero warnings | `scripts/windows/build.ps1 -CheckWarnings` |
+| Unit tests | `scripts/windows/test.ps1` |
+| End-to-end flows | `scripts/windows/e2e.ps1 [-Verbose]` (Git Bash runs `scripts/e2e.sh` against the Windows build) |
+| Every surface as PNGs | `.build\debug\BreakpointApp.exe --debug-snapshots DIR` |
+| Release zip, then install and run it | `scripts/windows/package.ps1 -Version X.Y.Z -OutDir build/release`; `scripts/windows/smoke.ps1 -Zip …` |
+
+The Windows app takes the same launch arguments and harness flags; `--write-icon FILE` writes the
+icon (packaging). `BREAKPOINT_HOME` works the same way: always set it when running the app or the
+CLI by hand (the data folder becomes `<home>\AppData\Local\Breakpoint`). Windows surfaces are pure
+`draw(canvas, controls, state)` functions: check a change with `--debug-snapshots` before running
+the app. Python and editors on Windows may write CRLF: the repository is LF (`.gitattributes`).
 
 ## Testing the whole app (debug builds only)
 
@@ -152,7 +170,9 @@ whoever is working at the Mac. `--demo selftest` and `BREAKPOINT_UI_SELFTEST` sh
 
 The code has four parts that meet only through the types in docs/INTERFACES.md: core logic,
 integrations, break screens, and the menu bar with settings and onboarding. The coordinator in
-`Sources/BreakpointApp` wires them together.
+`Sources/BreakpointRuntime` wires them together on both platforms, reaching the system only through
+`AppPlatform` and `PlatformShell` (`MacPlatform` in `Sources/BreakpointApp`, `WindowsPlatform` in
+`Sources/BreakpointWindows`).
 
 - **Core logic**: `SessionTracker` emits `SessionTransition`s; the coordinator builds resume cards
   and the wind-down trigger from them. `PresenceTracker` reports `retroactiveSeconds` for idle away
@@ -176,17 +196,26 @@ Package.swift
 Sources/
   BreakpointCore/      Foundation only. Models/ (shared types) · Engine/ Tracking/ History/ Settings/
                        Routines/ (core logic) · Wire/ Integrations/ (integrations) · Updates/
-  BreakpointKit/       AppKit and SwiftUI. Design/ State/ (shared) · Break/ (break screens) ·
-                       MenuBar/ Settings/ Onboarding/ · Tour/ (the one-minute tour) · Services/
-                       (activity, AirPods motion, hotkeys, displays, login item, update download)
-  BreakpointApp/       main, AppDelegate, AppCoordinator (+Loop, +Actions, +State, +Commands,
-                       +Hints, +Pacing, +Rotation, +Tour, +Updates), DebugHarness (debug only)
+  BreakpointRuntime/   shared by both apps: State/ (AppState, AppActions) · Coordinator/
+                       (AppCoordinator +Loop, +Actions, +State, +Commands, +Hints, +Pacing,
+                       +Rotation, +Tour, +Updates; DebugHarness, debug only) · Platform/ (the seams)
+                       · Presentation/ (PopoverModel, SettingsPane, glyph names)
+  BreakpointKit/       macOS: AppKit and SwiftUI. Design/ · Break/ (break screens) · MenuBar/
+                       Settings/ Onboarding/ · Tour/ (the one-minute tour) · Services/ (activity,
+                       AirPods motion, hotkeys, displays, login item, update download)
+  BreakpointApp/       macOS: main, AppDelegate, MacPlatform (MacShell)
+  BreakpointWindows/   Windows: Platform/ (message loop, windows, Canvas, controls) · Design/ ·
+                       Surfaces/ (Tray, Popups, Overlay, Settings, Onboarding, Tour, snapshots) ·
+                       Services/ · WindowsPlatform, WindowsShell
+  CBreakpointWin32/    Windows: Direct2D/DirectWrite/DirectComposition, WinHTTP, tray (C API)
+  BreakpointWinApp/    Windows: main (Breakpoint.exe)
+  update-signing/      Windows: release-signing tool (twin of scripts/update-signing.swift)
   breakpoint-cli/      the `breakpoint` tool
   BreakpointSnapshots/ snapshot tool: one registry file per part (Design, Glass, Break, MenuBar,
                        Settings, Onboarding, Tour), the app icon, and frame-by-frame motion films
 Tests/BreakpointCoreTests/  Shared/ · CoreLogic/ · Integrations/ · Motion/
-scripts/               build, test, snapshot, e2e and release scripts (above)
-docs/                  SPEC.md, INTERFACES.md, RELEASING.md, MAINTAINING.md, TRYING-IT.md ·
+scripts/               build, test, snapshot, e2e and release scripts (above); windows/ (PowerShell)
+docs/                  SPEC.md, WINDOWS.md, INTERFACES.md, RELEASING.md, MAINTAINING.md, TRYING-IT.md ·
                        research/ (background notes) · readme/ (the README's pictures: assets/, and
                        src/, the page that renders the hero)
 ```

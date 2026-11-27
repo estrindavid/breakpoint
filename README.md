@@ -5,12 +5,13 @@
 <p align="center">
   <a href="https://github.com/estrindavid/breakpoint/releases/latest"><img src="https://img.shields.io/github/v/release/estrindavid/breakpoint?label=release&labelColor=0b0f17&color=3dd6b0" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/macOS-14%2B-6c7cff?labelColor=0b0f17" alt="macOS 14 or later">
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-6c7cff?labelColor=0b0f17" alt="Windows 10 (2004) or 11">
   <a href="https://github.com/estrindavid/breakpoint/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/estrindavid/breakpoint/release.yml?label=release%20build&labelColor=0b0f17" alt="Release build"></a>
   <a href="https://github.com/estrindavid/breakpoint/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/estrindavid/breakpoint/ci.yml?branch=main&label=CI&labelColor=0b0f17" alt="CI"></a>
 </p>
 
 <p align="center">
-  A Mac menu-bar app for people who code with AI agents.<br>
+  A Mac menu-bar app (and Windows tray app) for people who code with AI agents.<br>
   It offers a short break while your agent works, and calls you back when it needs you.
 </p>
 
@@ -32,6 +33,16 @@ curl -fsSL https://github.com/estrindavid/breakpoint/releases/latest/download/in
 
 <p align="center">
   <sub>macOS 14 or later · no account · free </sub>
+</p>
+
+<p align="center">On Windows, paste this in PowerShell. It installs the latest release for you alone (no administrator).</p>
+
+```powershell
+irm https://github.com/estrindavid/breakpoint/releases/latest/download/install.ps1 | iex
+```
+
+<p align="center">
+  <sub>Windows 10 (2004) or 11, 64-bit · no account · free</sub>
 </p>
 
 <br>
@@ -61,6 +72,31 @@ and reopens it; settings and history stay. Older versions are never installed ov
 Settings → About has Check now, and switches for automatic checks and automatic installs. A copy
 built without the release key only tells you about a new version and opens its download page.
 Maintainers: [docs/RELEASING.md](docs/RELEASING.md).
+
+</details>
+
+<details>
+<summary><b>On Windows</b>: the same app, native, in the notification area</summary>
+<br>
+
+Breakpoint for Windows is the same engine, the same CLI, the same hooks and the same words as the
+Mac app, with its own native windows (Win32 and Direct2D, on Windows 11's Acrylic and Mica). It
+lives in the notification area: click the mark for the flyout, right-click for Take a break,
+Pause, Settings and Quit. The installer ([`scripts/windows/install.ps1`](scripts/windows/install.ps1))
+checks the download's size and SHA-256 against the release, puts Breakpoint in
+`%LOCALAPPDATA%\Programs\Breakpoint`, adds it to the Start menu, and opens nothing. Updates are
+signed with the same release key and install themselves the same way.
+
+Differences, all recorded in [docs/WINDOWS.md](docs/WINDOWS.md): shell integration is PowerShell
+rather than zsh/bash; the AirPods movement check does not exist (no Core Motion); scrolling counts as
+typing for the typing guard (Windows can't tell them apart without a keyboard hook, which Breakpoint
+never installs); the app is not code-signed, so a browser download of the zip may be flagged by
+SmartScreen (the PowerShell line above avoids that). Data lives in `%LOCALAPPDATA%\Breakpoint`
+instead of `~/Library/Application Support/Breakpoint`; `~\.breakpoint` is the same.
+
+Uninstall: `~\.breakpoint\bin\breakpoint.exe uninstall all`, quit Breakpoint, then delete
+`%LOCALAPPDATA%\Programs\Breakpoint`, `%LOCALAPPDATA%\Breakpoint`, `~\.breakpoint` and the Start menu
+entry. Building it: [CONTRIBUTING.md](CONTRIBUTING.md#windows).
 
 </details>
 

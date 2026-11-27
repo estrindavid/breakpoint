@@ -42,6 +42,7 @@ public final class WindowsActivityMonitor: ActivityMonitoring {
     private var displaysAsleep = false
     private var sessionActive = true
     private var classifier: Timer?
+    private var classifierIsFast = true
     private var started = false
     private var watchers: [ConsentWatcher] = []
 
@@ -63,12 +64,28 @@ public final class WindowsActivityMonitor: ActivityMonitoring {
             watcher.start()
             watchers.append(watcher)
         }
-        // Classify input often enough to tell typing from the pointer, but only while input is
-        // recent: an idle machine wakes Breakpoint only for the coordinator's own tick.
-        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.classify() }
+        scheduleClassifier(fast: true)
+    }
+
+    /// Classifies input four times a second while input is recent, often enough to tell typing
+    /// from the pointer; once the machine has been idle for a few seconds, every 2 s, just to
+    /// notice input coming back. An idle machine wakes Breakpoint rarely.
+    private func scheduleClassifier(fast: Bool) {
+        classifier?.invalidate()
+        classifierIsFast = fast
+        let timer = Timer(timeInterval: fast ? 0.25 : 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.classify()
+                let idle = Double(GetTickCount() &- self.lastInputTick) / 1000
+                if self.classifierIsFast, idle > 5 {
+                    self.scheduleClassifier(fast: false)
+                } else if !self.classifierIsFast, idle < 2 {
+                    self.scheduleClassifier(fast: true)
+                }
+            }
         }
-        timer.tolerance = 0.05
+        timer.tolerance = fast ? 0.05 : 0.5
         RunLoop.main.add(timer, forMode: .common)
         classifier = timer
     }

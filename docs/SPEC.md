@@ -8,6 +8,13 @@ any core feature.
 
 One-line pitch: *Break reminders that wait for your agent.*
 
+**Windows.** The same product runs natively on Windows 10 (2004) and 11 as a notification-area
+(tray) app built from the same package: the engine, the coordinator, the CLI, the wire format and
+every word are shared, so everything in this spec holds there too. Where a section names a macOS
+mechanism (an API, a path, the menu bar), [docs/WINDOWS.md](WINDOWS.md) records the Windows equivalent and why;
+the sections below link to it where Windows differs. "Mac" in the copy reads "PC" there
+(`BreakpointPlatform.computerName`).
+
 **How to read this document.** This file is the single source of truth. `docs/research/` holds
 background (`agent-integrations.md` for hook formats); where it differs from this file, this file
 wins (see §10). Sizes are in points (pt), durations in
@@ -18,8 +25,9 @@ seconds (s). "Must" is a requirement; "default" is a user-changeable setting val
 |---|---|---|
 | Core logic | 2, 6, 7.1, 7.3 | `BreakpointCore` (all but `Integrations/`), `Breakpoint` app target |
 | Integrations | 5, 6 | `BreakpointCore/Integrations`, `breakpoint-cli`, shell snippets |
-| Break screens | 3.0–3.6, 4 | `BreakpointKit/Design`, `Break/`, the Kit services they use |
-| Menu bar, settings, onboarding, the tour and hints | 3.7–3.10, 3.12 | `BreakpointKit/MenuBar`, `Settings/`, `Onboarding/` |
+| Break screens | 3.0–3.6, 4 | `BreakpointKit/Design`, `Break/`, the Kit services they use (Windows: `BreakpointWindows/Surfaces/Popups`, `Overlay/`) |
+| Menu bar, settings, onboarding, the tour and hints | 3.7–3.10, 3.12 | `BreakpointKit/MenuBar`, `Settings/`, `Onboarding/` (Windows: `BreakpointWindows/Surfaces/Tray`, `Settings/`, `Onboarding/`, `Tour/`) |
+| App state, coordinator, platform seams | 7.2, 7.3 | `BreakpointRuntime` (shared by both apps) |
 
 Parts meet only through the types named in §7 (`EngineSnapshot`, `AgentEvent`, `WireMessage`,
 `AppState`, `AppActions`).
@@ -187,6 +195,9 @@ Every signal below is read without a permission prompt. Breakpoint must not use
 `NSEvent.addGlobalMonitorForEvents` for key events, `CGEventTap`, the Accessibility API, window
 lists, window titles, `ScreenCaptureKit`, `INFocusStatusCenter`, EventKit or
 `UNUserNotificationCenter`.
+
+On Windows the same signals come from the system without any hook or raw-input listener; the
+table of sources is in [docs/WINDOWS.md](WINDOWS.md) ("Signals without a hook").
 
 | Signal | How it is read (macOS 14+) | Used for |
 |---|---|---|
@@ -378,7 +389,7 @@ If enabled and AirPods are connected, read head motion (`CMHeadphoneMotionManage
 and `walk` breaks and mark the entry "movement detected" when rotation activity crosses a simple
 threshold. Shown as a small tick in history. No rep counting. Turning it on triggers the system
 Motion access prompt; this is the only prompt in the app and it is optional. Degrades silently
-when unavailable or denied.
+when unavailable or denied. Windows has no equivalent: the setting is not shown there.
 
 ### 2.10 Out of scope
 
@@ -398,7 +409,9 @@ Windows/Linux, VS Code extension, standing-desk control, any cloud service. Also
 ### 2.11 Updates
 
 The app's only network access. Breakpoint is not signed by Apple (no Developer ID, no
-notarization); its updates are signed with the project's own Ed25519 key instead.
+notarization); its updates are signed with the project's own Ed25519 key instead. The Windows app
+reads its own feed (`update-feed-windows.json`) from the same releases, signed with the same key;
+how it installs in place is in [docs/WINDOWS.md](WINDOWS.md).
 
 - **One version number.** `BreakpointVersion.current` (`Models/Version.swift`): `scripts/build-app.sh`
   writes it into `CFBundleShortVersionString`, `breakpoint --version` prints it, About shows it.
@@ -752,6 +765,11 @@ popover only), except the first one, whose toast carries its first-use hint (§3
 - Stays until answered; becomes key only after the user clicks into it.
 
 ### 3.7 Menu-bar status item
+
+On Windows this is the notification-area (tray) icon: the same mark states and badges, drawn in
+the taskbar's colour; Windows shows no text beside a tray icon, so the menu-bar text joins the
+tooltip, and "Why not now?" is a greyed line at the top of the right-click menu (Windows has no
+Option-click). The popover (§3.8) is a flyout above the taskbar.
 
 Template image (18 pt mark), drawn in code, plus optional text. The item has two independent
 layers so every state differs by **shape**, not colour:
@@ -1291,7 +1309,9 @@ Events reach the app **only** through the `breakpoint` command-line tool, which 
 line (§6) to a Unix domain socket at `~/Library/Application Support/Breakpoint/breakpoint.sock`
 (if that path exceeds 103 bytes, `~/.breakpoint/run/bp.sock`; `SocketPath` decides for both
 sides). No HTTP server, no TCP port, no network. The socket is mode 0600 in a 0700 directory and
-the server rejects peers whose uid (`getpeereid`) differs from its own.
+the server rejects peers whose uid (`getpeereid`) differs from its own. On Windows the same
+`AF_UNIX` socket is `%LOCALAPPDATA%\Breakpoint\breakpoint.sock`, and the same-user guarantee comes
+from that folder's ACL ([docs/WINDOWS.md](WINDOWS.md)).
 
 At launch the app opens the socket before anything else. If another copy of Breakpoint already
 answers on it (same home), the new copy sends it `activate` (§6), which shows the running copy's
@@ -1310,6 +1330,10 @@ hook is wrapped so a missing binary is a silent no-op:
 ```sh
 [ -x "$HOME/.breakpoint/bin/breakpoint" ] && "$HOME/.breakpoint/bin/breakpoint" emit agentStarted --source claude-code --stdin-json >/dev/null 2>&1 || true
 ```
+
+On Windows the hook names the copy by its absolute path (`C:/Users/x/.breakpoint/bin/breakpoint.exe
+emit … --stdin-json`), the one form every Windows shell the tools use runs; why, and what replaces
+the silent no-op, is in [docs/WINDOWS.md](WINDOWS.md). Shell integration there is PowerShell.
 
 ### 5.3 The `emit` contract
 
@@ -1517,18 +1541,38 @@ unknown kinds and types are dropped without error.
 
 ## 7. Architecture
 
-Swift package (no Xcode project, **no third-party dependencies**), macOS 14+, Swift 5 language
-mode.
+Swift package (no Xcode project, **no third-party dependencies**), macOS 14+ and Windows 10 2004+,
+Swift 5 language mode. `Package.swift` declares the shared targets on both platforms and each
+platform's UI targets only on that platform.
+
+| Layer | Shared | macOS | Windows |
+|---|---|---|---|
+| Logic, integrations, wire format, updates | `BreakpointCore` | | |
+| `AppState`, `AppActions`, the coordinator, the debug harness, presentation models | `BreakpointRuntime` | | |
+| The CLI | `breakpoint-cli` | | |
+| Windows, pop-ups, status item, system services | | `BreakpointKit` (AppKit + SwiftUI) | `BreakpointWindows` (Win32 + Direct2D), `CBreakpointWin32` (C++ shim) |
+| The app | | `BreakpointApp` | `BreakpointWinApp` (`Breakpoint.exe`) |
+| Visual review | | `BreakpointSnapshots` | `Breakpoint.exe --debug-snapshots` |
 
 ```
 Package.swift
 Sources/
   BreakpointCore/        Foundation-only. Models, engine, tracking, stores, wire format, installers.
-  BreakpointKit/         AppKit + SwiftUI. Design system, all windows and views, the tour, system services.
-  BreakpointApp/         The app executable (named Breakpoint inside the bundle): main, AppDelegate,
-                         AppCoordinator wiring Core + Kit (+Loop, +Actions, +State, +Commands, +Hints,
-                         +Pacing, +Rotation, +Tour, +Updates), DebugHarness (debug builds only).
+  BreakpointRuntime/     Shared app layer: State/ (AppState, AppActions), Coordinator/ (AppCoordinator
+                         +Loop, +Actions, +State, +Commands, +Hints, +Pacing, +Rotation, +Tour, +Updates;
+                         DebugHarness, debug builds only), Platform/ (AppPlatform, PlatformShell and the
+                         service protocols), Presentation/ (PopoverModel, SettingsPane, glyph names).
+  BreakpointKit/         macOS: AppKit + SwiftUI. Design system, all windows and views, the tour, services.
+  BreakpointApp/         macOS app executable (named Breakpoint inside the bundle): main, AppDelegate,
+                         MacPlatform (the AppPlatform and PlatformShell of macOS).
+  BreakpointWindows/     Windows: Platform/ (message loop, windows, Canvas, controls), Design/, Surfaces/
+                         (tray and flyout, pop-ups, overlay, settings, onboarding, tour), Services/,
+                         WindowsPlatform, WindowsShell.
+  CBreakpointWin32/      Windows: Direct2D, DirectWrite, DirectComposition, WinHTTP and notification-area
+                         calls behind a small C API.
+  BreakpointWinApp/      Windows app executable (Breakpoint.exe).
   breakpoint-cli/        The `breakpoint` command-line tool (product name: breakpoint). Depends on Core.
+  update-signing/        Windows: the release-signing tool (scripts/update-signing.swift's twin).
   BreakpointSnapshots/   Renders key views to PNG, and motion films, for visual review (never shipped).
 Tests/
   BreakpointCoreTests/   Swift Testing. Shared/ (models, wire, formatting), CoreLogic/ (engine, policies,
@@ -1537,8 +1581,9 @@ Tests/
 scripts/                 test.sh, snapshots.sh, build-app.sh, run.sh, smoke-app.sh, e2e.sh; releases:
                          release.sh, release-keygen.sh, package-release.sh, make-update-feed.sh,
                          update-signing.swift, install.sh
-docs/                    SPEC.md, INTERFACES.md, RELEASING.md, MAINTAINING.md, TRYING-IT.md, research/,
-                         readme/
+scripts/windows/         build.ps1, test.ps1, e2e.ps1, package.ps1, smoke.ps1, install.ps1, version.ps1
+docs/                    SPEC.md, WINDOWS.md, INTERFACES.md, RELEASING.md, MAINTAINING.md, TRYING-IT.md,
+                         research/, readme/
 ```
 
 ### 7.1 BreakpointCore (pure logic, fully testable; no AppKit, no system calls except files and sockets)
@@ -1586,8 +1631,9 @@ docs/                    SPEC.md, INTERFACES.md, RELEASING.md, MAINTAINING.md, T
   tertiary / mintPrimary; sizes 34 / 28; optional keycap; optional guard ring), `KindBadge`,
   `AgentChip`, `ProgressRing`, `StatusDot`, `KeyHint` (keycaps), `RollingNumber`, `BrandMark`,
   `SectionHeader`, `SettingRow`, `SentenceRow`, `PresetCard`, `Chip`.
-- `State/` — `AppState` (`@MainActor final class: ObservableObject`) and `AppActions` (struct of
-  closures). Views depend only on these and Core models. `AppState.preview(...)` factories cover
+- `State/` (in `BreakpointRuntime`, shared with Windows) — `AppState` (`@MainActor final class:
+  ObservableObject`) and `AppActions` (struct of closures). Views depend only on these and Core
+  models. `AppState.preview(...)` factories cover
   every snapshot state. Contents:
   - `AppState`: `menuBar` (mark state, badge state, text, tooltip), `status` (next break, still
     time, pause state), `lastDecision: AutoDecision?`, `sessions`, `commands`, `today`, `totals`, `nudge`
@@ -1624,9 +1670,11 @@ docs/                    SPEC.md, INTERFACES.md, RELEASING.md, MAINTAINING.md, T
   - `UpdateFetcher`: the release feed and, on Update, the archive (§2.11); the debug harness
     replaces it with local files or a simulated failure, so tests never reach the network.
 
-### 7.3 Breakpoint (app, `Sources/BreakpointApp`)
+### 7.3 Breakpoint (app, `Sources/BreakpointApp`; the coordinator in `BreakpointRuntime`)
 
-`AppCoordinator` owns `SettingsStore`, `HistoryStore`, `SessionTracker`, `ActivityClock`,
+`AppCoordinator` (`BreakpointRuntime/Coordinator`, shared by both apps) reaches the system only
+through `AppPlatform` (services, dialogs, quitting, the app's location) and `PlatformShell` (every
+window and the status item): `MacPlatform` on macOS, `WindowsPlatform` on Windows. It owns `SettingsStore`, `HistoryStore`, `SessionTracker`, `ActivityClock`,
 `PresenceTracker`, `ActivityMonitor`, `EventSocketServer`, the engine loop (1 s tick for timers,
 held opportunities and detectors, plus event-driven opportunities), the current `AutoDecision`,
 and all window controllers. It builds an `EngineSnapshot` for each decision, maps Core state into
@@ -1652,6 +1700,10 @@ newest release seen, a postponed version; §2.11), `breakpoint.sock`,
 `watchdog.log`, `backups/` (integration file backups, `<tool>-<yyyyMMdd-HHmmss>.<ext>`).
 `~/.breakpoint/`: `bin/breakpoint` (CLI copy), `shell/breakpoint.zsh`, `shell/breakpoint.bash`,
 `run/` (socket fallback only).
+
+On Windows the same files live in `%LOCALAPPDATA%\Breakpoint\` (never roamed), and
+`~\.breakpoint\` holds `bin\breakpoint.exe` with its Visual C++ runtime and
+`shell\breakpoint.ps1` ([docs/WINDOWS.md](WINDOWS.md)).
 
 ---
 
