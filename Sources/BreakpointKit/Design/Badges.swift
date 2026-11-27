@@ -2,17 +2,7 @@ import SwiftUI
 import BreakpointCore
 import BreakpointRuntime
 
-extension BreakKind {
-    /// SF Symbol for the kind badge (SPEC §3.1).
-    public var symbolName: String {
-        switch self {
-        case .eyes: return "eye"
-        case .move: return "figure.arms.open"
-        case .walk: return "figure.walk"
-        case .breathe: return "wind"
-        }
-    }
-}
+// `BreakKind.symbolName` lives in BreakpointRuntime (Presentation/Symbols.swift), shared with Windows.
 
 /// The single coloured badge of a pop-up (SPEC §3.0, §3.1): a circle in the Breakpoint gradient
 /// (break kinds), indigo (agent working) or amber (needs you), with a white SF Symbol.

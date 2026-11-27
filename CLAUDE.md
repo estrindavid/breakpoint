@@ -63,7 +63,7 @@ is read from the same folder: the harness never reaches the network), `debug upd
 `debug update-location APP` (a throwaway key and a stand-in app bundle for `debug action install-update`),
 `debug install-check unreachable|normal` (the check after Install reaches no app, so it fails and says why),
 `debug tour start|next|skip|popover-closed` (the one-minute tour; `debug state` also shows `hints` and `popover`),
-`debug popover click-outside|esc|other-app|space|display|menu-bar-hidden [pointer-on]` (what may close the popover; `.popover.closedBy` says what did) and `debug action accept|skip|extend|undo|install claude-code|…`. Example:
+`debug popover open`, `debug popover click-outside|esc|other-app|space|display|menu-bar-hidden [pointer-on]` (what may close the popover; `.popover.closedBy` says what did) and `debug action accept|skip|extend|undo|install claude-code|…`. Example:
 
 ```sh
 export BREAKPOINT_HOME="$(mktemp -d -t bp)"

@@ -78,6 +78,9 @@ public final class Controls {
         window.onKeyDown = { [weak self] key in self?.keyDown(key) ?? false }
     }
 
+    /// Shows the focus ring as if the keyboard had been used (snapshots).
+    public func debugShowFocus() { keyboardUsed = true }
+
     /// Call at the start of each frame.
     public func begin() { regions.removeAll(keepingCapacity: true) }
 
@@ -103,8 +106,8 @@ public final class Controls {
 
     /// A capsule button. `keycap` (e.g. "Ctrl+Alt+Win+B") is drawn small after the title.
     public func button(_ canvas: Canvas, id: String, _ rect: RectF, _ title: String, role: Role = .secondary,
-                       keycap: String? = nil, keycapBright: Bool = false, enabled: Bool = true, style: TextStyle? = nil,
-                       action: @escaping () -> Void) {
+                       keycap: String? = nil, keycapBright: Bool = false, chevron: Bool = false, enabled: Bool = true,
+                       style: TextStyle? = nil, action: @escaping () -> Void) {
         let hot = enabled && isHovered(id), down = enabled && isPressed(id)
         let radius = rect.height / 2
         let background: Colour
@@ -136,6 +139,14 @@ public final class Controls {
                 let cap = RectF(x: x + titleSize.width + 8, y: rect.midY - 9, width: capSize.width + 10, height: 18)
                 canvas.fill(cap, radius: Theme.Radius.keycap, foreground.opacity(keycapBright ? 0.22 : 0.10))
                 canvas.text(keycap, in: cap, style: capStyle, foreground.opacity(keycapBright ? 0.95 : 0.55))
+            } else if chevron {
+                // Title and the menu chevron centred together (the button opens a menu).
+                let leading = TextStyle(size: titleStyle.size, weight: titleStyle.weight)
+                let titleSize = Canvas.measure(title, style: leading)
+                let x = rect.midX - (titleSize.width + 14) / 2
+                canvas.text(title, at: PointF(x: x, y: rect.midY - titleSize.height / 2), style: leading, foreground)
+                let cx = x + titleSize.width + 10, cy = rect.midY + 0.5
+                canvas.path("MLL", [cx - 3.5, cy - 2, cx, cy + 1.5, cx + 3.5, cy - 2], foreground.opacity(0.8), stroke: 1.5)
             } else {
                 canvas.text(title, in: rect.insetBy(8, 0), style: titleStyle, foreground)
             }

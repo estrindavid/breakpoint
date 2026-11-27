@@ -11,6 +11,7 @@ import WinSDK
 //
 // Launch arguments are macOS's (SPEC §7.3): --show-onboarding, --tour, --quit-after N,
 // --debug-stall-main N, --signals, and in debug builds the end-to-end harness's --debug-* flags.
+// Windows only: --write-icon FILE (packaging) and --debug-snapshots DIR (every surface as PNGs).
 
 _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
 _ = CoInitializeEx(nil, DWORD(COINIT_APARTMENTTHREADED.rawValue))
@@ -41,7 +42,20 @@ let status: Int32 = MainActor.assumeIsolated {
             return 1
         }
     }
-        if options.demo != nil {
+    if let index = CommandLine.arguments.firstIndex(of: "--debug-snapshots"), index + 1 < CommandLine.arguments.count {
+        // Every surface in every preview state, as PNGs (the Windows UI's review loop).
+        _ = bp_graphics_start()
+        Console.attachToParent()
+        do {
+            let count = try SnapshotCatalogue.writeAll(to: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true))
+            print("Wrote \(count) snapshots.")
+            return 0
+        } catch {
+            print("Snapshots failed: \(error)")
+            return 1
+        }
+    }
+    if options.demo != nil {
         Console.attachToParent()
         print("The break demos (--demo) are only in the macOS app; scripts/windows/run.ps1 shows the real screens.")
         return 2

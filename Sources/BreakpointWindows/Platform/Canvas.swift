@@ -99,6 +99,8 @@ public struct Canvas {
     let surface: OpaquePointer?
     public let size: SizeF
     public let scale: Float
+    /// Drawn into a bitmap (snapshots), not a window: no backdrop shows through.
+    public internal(set) var isOffscreen = false
 
     public var bounds: RectF { RectF(x: 0, y: 0, width: size.width, height: size.height) }
 
@@ -132,7 +134,7 @@ public struct Canvas {
     public func shadow(_ rect: RectF, radius: Float, blur: Float, offset: PointF = PointF(x: 0, y: 4), _ colour: Colour) {
         bp_shadow_rounded(surface, rect.bp, radius, blur, offset.x, offset.y, colour.bp)
     }
-    /// A path: "M x y L x y C x1 y1 x2 y2 x y Z" as commands plus their numbers.
+    /// A path: "M x y L x y Q cx cy x y C x1 y1 x2 y2 x y Z" as commands plus their numbers.
     public func path(_ commands: String, _ points: [Float], _ colour: Colour, stroke: Float = 0) {
         commands.withCString { command in
             points.withUnsafeBufferPointer { bp_path(surface, command, $0.baseAddress, Int32($0.count), colour.bp, stroke) }
@@ -143,6 +145,13 @@ public struct Canvas {
         bp_push_clip_rounded(surface, rect.bp, radius)
         body()
         bp_pop_clip(surface)
+    }
+    /// Shapes drawn in `body` are taken out of what is already drawn (opaque shapes punch holes):
+    /// the tray mark's knocked-out eyes and badge halo, on a transparent icon.
+    public func erasing(_ body: () -> Void) {
+        bp_set_erase(surface, 1)
+        body()
+        bp_set_erase(surface, 0)
     }
     public func withOpacity(_ opacity: Float, _ body: () -> Void) {
         guard opacity < 0.999 else { return body() }

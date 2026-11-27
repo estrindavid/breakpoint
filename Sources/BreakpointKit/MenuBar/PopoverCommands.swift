@@ -123,12 +123,7 @@ final class PopoverCommands: ObservableObject {
     }
 }
 
-/// Where the next opening of the settings window should land (set by the popover's About and
-/// Connect…, consumed by `SettingsWindowController.show`).
-@MainActor
-enum SettingsNavigator {
-    static var pendingPane: SettingsPane?
-}
+// `SettingsNavigator` lives in BreakpointRuntime (Presentation/SettingsPane.swift).
 
 /// Reports a control's frame in the popover's coordinate space, so a native menu can pop up
 /// below it (from a click or from the keyboard).

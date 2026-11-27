@@ -99,6 +99,9 @@ struct BPSurface {
     ComPtr<ID2D1RenderTarget> wicTarget;
     float scale = 1;
     int width = 0, height = 0;
+    // While erasing: the target to return to and the shapes recorded meanwhile.
+    ComPtr<ID2D1Image> eraseTarget;
+    ComPtr<ID2D1CommandList> eraseList;
     std::vector<D2D1_MATRIX_3X2_F> transforms;
     bool drawing = false;
 
@@ -429,6 +432,11 @@ void bp_path(BPSurface *s, const char *commands, const float *p, int count, BPCo
                                                 D2D1::Point2F(p[i + 4], p[i + 5])));
             i += 6;
             break;
+        case 'Q':
+            if (i + 4 > count || !open) break;
+            sink->AddQuadraticBezier(D2D1::QuadraticBezierSegment(D2D1::Point2F(p[i], p[i + 1]), D2D1::Point2F(p[i + 2], p[i + 3])));
+            i += 4;
+            break;
         case 'Z':
             if (open) sink->EndFigure(D2D1_FIGURE_END_CLOSED);
             open = false;
@@ -465,8 +473,10 @@ BPTextLayout *bp_text_layout(const uint16_t *text, int length, BPTextStyle style
                                           DWRITE_FONT_STRETCH_NORMAL, style.size > 0 ? style.size : 13, L"",
                                           &format)))
         return nullptr;
-    format->SetTextAlignment(style.align == BPTextAlignCenter     ? DWRITE_TEXT_ALIGNMENT_CENTER
-                             : style.align == BPTextAlignTrailing ? DWRITE_TEXT_ALIGNMENT_TRAILING
+    // Alignment needs a box: unbounded text (maxWidth 0) is always laid out from its origin.
+    BPTextAlign align = maxWidth > 0 ? style.align : BPTextAlignLeading;
+    format->SetTextAlignment(align == BPTextAlignCenter     ? DWRITE_TEXT_ALIGNMENT_CENTER
+                             : align == BPTextAlignTrailing ? DWRITE_TEXT_ALIGNMENT_TRAILING
                                                                   : DWRITE_TEXT_ALIGNMENT_LEADING);
     format->SetWordWrapping(style.wrap ? DWRITE_WORD_WRAPPING_WRAP : DWRITE_WORD_WRAPPING_NO_WRAP);
     if (style.lineSpacing > 0) {
@@ -503,10 +513,9 @@ BPSize bp_text_layout_size(BPTextLayout *layout) {
     if (!layout) return size;
     DWRITE_TEXT_METRICS metrics;
     if (SUCCEEDED(layout->layout->GetMetrics(&metrics))) {
+        // Trailing spaces count, so runs of text set one after another keep their spaces.
         size.width = metrics.widthIncludingTrailingWhitespace;
         size.height = metrics.height;
-        // An unbounded layout reports its 100000 DIP box; the text's own width is what counts.
-        if (layout->layout->GetMaxWidth() >= 99999.0f) size.width = metrics.width;
     }
     return size;
 }
@@ -566,6 +575,50 @@ int bp_render_pixels(int width, int height, float scale, BPIconDrawer draw, void
     bool ok = copyPixels(s, pixels);
     delete s;
     return ok ? 0 : -1;
+}
+
+void bp_set_erase(BPSurface *s, int on) {
+    if (!s) return;
+    if (on) {
+        // Record the shapes, then take them out of what is drawn (destination-out): works on
+        // every target, where a COPY primitive blend does not.
+        if (s->eraseList || FAILED(s->dc->CreateCommandList(&s->eraseList))) return;
+        s->dc->GetTarget(&s->eraseTarget);
+        s->dc->SetTarget(s->eraseList.Get());
+        return;
+    }
+    if (!s->eraseList) return;
+    s->dc->SetTarget(s->eraseTarget.Get());
+    s->eraseList->Close();
+    D2D1_MATRIX_3X2_F transform;
+    s->dc->GetTransform(&transform);
+    s->dc->SetTransform(D2D1::Matrix3x2F::Identity());
+    s->dc->DrawImage(s->eraseList.Get(), D2D1_INTERPOLATION_MODE_LINEAR, D2D1_COMPOSITE_MODE_DESTINATION_OUT);
+    s->dc->SetTransform(transform);
+    s->eraseList.Reset();
+    s->eraseTarget.Reset();
+}
+
+int bp_write_png(const uint16_t *path, int width, int height, const uint8_t *pixels) {
+    if (!g.wic && FAILED(bp_graphics_start())) return -1;
+    if (!g.wic) return -1;
+    ComPtr<IWICBitmap> bitmap;
+    if (FAILED(g.wic->CreateBitmapFromMemory(width, height, GUID_WICPixelFormat32bppPBGRA, width * 4, width * height * 4,
+                                             const_cast<BYTE *>(pixels), &bitmap))) return -1;
+    ComPtr<IWICStream> stream;
+    ComPtr<IWICBitmapEncoder> encoder;
+    ComPtr<IWICBitmapFrameEncode> frame;
+    if (FAILED(g.wic->CreateStream(&stream)) ||
+        FAILED(stream->InitializeFromFilename(reinterpret_cast<const wchar_t *>(path), GENERIC_WRITE)) ||
+        FAILED(g.wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder)) ||
+        FAILED(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache)) ||
+        FAILED(encoder->CreateNewFrame(&frame, nullptr)) || FAILED(frame->Initialize(nullptr)) ||
+        FAILED(frame->SetSize(width, height))) return -1;
+    WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
+    if (FAILED(frame->SetPixelFormat(&format))) return -1;
+    // The PNG encoder takes straight alpha: WriteSource converts from the premultiplied bitmap.
+    if (FAILED(frame->WriteSource(bitmap.Get(), nullptr)) || FAILED(frame->Commit()) || FAILED(encoder->Commit())) return -1;
+    return 0;
 }
 
 void *bp_make_icon(int size, BPIconDrawer draw, void *context) {

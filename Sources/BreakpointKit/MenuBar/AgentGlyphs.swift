@@ -5,25 +5,8 @@ import BreakpointRuntime
 // Neutral glyphs for agent sources and tools in
 // the popover's agent rows and the Integrations pane. Never a tool's own logo (identity, §4.1).
 
-enum MenuBarGlyphs {
-    /// SF Symbol for an agent source tile (20 pt rounded square).
-    static func sourceSymbol(_ source: AgentSource) -> String {
-        switch source {
-        case .claudeCode: return "sparkle"
-        case .cursor: return "cursorarrow.rays"
-        case .codex: return "curlybraces"
-        case .copilot: return "paperplane"
-        case .gemini: return "sparkles"
-        case .shell: return "terminal"
-        default: return "circle.hexagongrid"
-        }
-    }
-
-    /// SF Symbol for an integration row.
-    static func integrationSymbol(_ id: IntegrationID) -> String {
-        sourceSymbol(id.source)
-    }
-}
+// `MenuBarGlyphs` (the SF Symbol for each source) lives in BreakpointRuntime
+// (Presentation/Symbols.swift), shared with Windows.
 
 /// A 20 pt rounded-square tile holding a source glyph (SPEC §3.8 agent rows). Neutral on dark
 /// glass; on windows it uses a quiet fill that follows the system appearance.

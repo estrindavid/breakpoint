@@ -4,6 +4,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include <powrprof.h>
+#include <shellapi.h>
 #include <winhttp.h>
 #include <wtsapi32.h>
 
@@ -125,3 +126,87 @@ int bp_track_popup_menu(void *menu, unsigned flags, int x, int y, void *hwnd) {
 }
 
 }  // extern "C"
+
+namespace {
+
+NOTIFYICONDATAW trayData(void *hwnd, unsigned id) {
+    NOTIFYICONDATAW data = {};
+    data.cbSize = sizeof(data);
+    data.hWnd = static_cast<HWND>(hwnd);
+    data.uID = id;
+    return data;
+}
+
+void copyTip(NOTIFYICONDATAW &data, const uint16_t *tip) {
+    if (!tip) return;
+    size_t n = 0;
+    while (tip[n] && n < (sizeof(data.szTip) / sizeof(data.szTip[0])) - 1) {
+        data.szTip[n] = static_cast<wchar_t>(tip[n]);
+        ++n;
+    }
+    data.szTip[n] = 0;
+    data.uFlags |= NIF_TIP | NIF_SHOWTIP;
+}
+
+}  // namespace
+
+int bp_tray_add(void *hwnd, unsigned id, unsigned message, void *icon, const uint16_t *tip) {
+    NOTIFYICONDATAW data = trayData(hwnd, id);
+    data.uFlags = NIF_MESSAGE | NIF_ICON;
+    data.uCallbackMessage = message;
+    data.hIcon = static_cast<HICON>(icon);
+    copyTip(data, tip);
+    if (!Shell_NotifyIconW(NIM_ADD, &data)) return 0;
+    data.uVersion = NOTIFYICON_VERSION_4;
+    return Shell_NotifyIconW(NIM_SETVERSION, &data) ? 1 : 0;
+}
+
+int bp_tray_modify(void *hwnd, unsigned id, void *icon, const uint16_t *tip) {
+    NOTIFYICONDATAW data = trayData(hwnd, id);
+    if (icon) {
+        data.uFlags |= NIF_ICON;
+        data.hIcon = static_cast<HICON>(icon);
+    }
+    copyTip(data, tip);
+    return Shell_NotifyIconW(NIM_MODIFY, &data) ? 1 : 0;
+}
+
+void bp_tray_remove(void *hwnd, unsigned id) {
+    NOTIFYICONDATAW data = trayData(hwnd, id);
+    Shell_NotifyIconW(NIM_DELETE, &data);
+}
+
+void bp_tray_focus(void *hwnd, unsigned id) {
+    NOTIFYICONDATAW data = trayData(hwnd, id);
+    Shell_NotifyIconW(NIM_SETFOCUS, &data);
+}
+
+int bp_tray_rect(void *hwnd, unsigned id, long *left, long *top, long *right, long *bottom) {
+    NOTIFYICONIDENTIFIER identifier = {};
+    identifier.cbSize = sizeof(identifier);
+    identifier.hWnd = static_cast<HWND>(hwnd);
+    identifier.uID = id;
+    RECT rect = {};
+    if (FAILED(Shell_NotifyIconGetRect(&identifier, &rect))) return 0;
+    *left = rect.left;
+    *top = rect.top;
+    *right = rect.right;
+    *bottom = rect.bottom;
+    return 1;
+}
+
+int bp_taskbar_edge(long *left, long *top, long *right, long *bottom) {
+    APPBARDATA data = {};
+    data.cbSize = sizeof(data);
+    if (!SHAppBarMessage(ABM_GETTASKBARPOS, &data)) return -1;
+    *left = data.rc.left;
+    *top = data.rc.top;
+    *right = data.rc.right;
+    *bottom = data.rc.bottom;
+    switch (data.uEdge) {
+    case ABE_LEFT: return 0;
+    case ABE_TOP: return 1;
+    case ABE_RIGHT: return 2;
+    default: return 3;
+    }
+}

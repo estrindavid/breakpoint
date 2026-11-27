@@ -1,5 +1,5 @@
 // System calls whose headers the Swift WinSDK module does not cover (wtsapi32, powrprof,
-// WinHTTP), wrapped with plain C types. Implemented in System.cpp.
+// WinHTTP, the notification area), wrapped with plain C types. Implemented in System.cpp.
 #pragma once
 
 #include <stddef.h>
@@ -36,6 +36,19 @@ void bp_http_free(BPHTTPResult *result);
 /// `TrackPopupMenu` with `TPM_RETURNCMD`: the chosen item's ID, 0 when none (Swift imports the
 /// function's result as a Bool).
 int bp_track_popup_menu(void *menu, unsigned flags, int x, int y, void *hwnd);
+
+/// The notification-area (tray) icon `id` of `hwnd`, calling back with `message`
+/// (NOTIFYICON_VERSION_4: LOWORD(lParam) is the event, wParam the anchor point). `tip` is UTF-16,
+/// NUL-terminated (at most 127 characters are kept). 1 on success.
+int bp_tray_add(void *hwnd, unsigned id, unsigned message, void *icon, const uint16_t *tip);
+int bp_tray_modify(void *hwnd, unsigned id, void *icon, const uint16_t *tip);
+void bp_tray_remove(void *hwnd, unsigned id);
+/// Gives the keyboard focus back to the tray icon (after its menu or flyout closes by keyboard).
+void bp_tray_focus(void *hwnd, unsigned id);
+/// The icon's rectangle on screen in physical pixels; 1 on success.
+int bp_tray_rect(void *hwnd, unsigned id, long *left, long *top, long *right, long *bottom);
+/// Where the taskbar is: 0 left, 1 top, 2 right, 3 bottom; and its rectangle. -1 if unknown.
+int bp_taskbar_edge(long *left, long *top, long *right, long *bottom);
 
 #ifdef __cplusplus
 }

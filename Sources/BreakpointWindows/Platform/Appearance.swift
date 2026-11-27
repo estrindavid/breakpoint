@@ -45,6 +45,9 @@ public enum Appearance {
     /// Apps are set to dark mode (Settings → Personalization → Colours → Choose your app mode).
     public static var isDarkMode: Bool { registryDWORD("AppsUseLightTheme") == 0 }
 
+    /// The taskbar and Start are light (Choose your Windows mode): tray icons are drawn dark.
+    public static var systemUsesLightTheme: Bool { registryDWORD("SystemUsesLightTheme") == 1 }
+
     /// Transparency effects are off, or the system cannot draw backdrops (before Windows 11 22H2).
     public static var prefersOpaque: Bool {
         registryDWORD("EnableTransparency") == 0 || !supportsBackdrops

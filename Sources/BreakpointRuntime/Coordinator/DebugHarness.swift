@@ -107,6 +107,7 @@ final class DebugHarness {
                                                 (SPEC §3.8): click-outside, esc, other-app, space, display or
                                                 menu-bar-hidden; pointer-on: the pointer is on the popover.
                                                 `debug state` shows .popover.open and .popover.closedBy
+    breakpoint debug popover open               open the popover (the tray flyout on Windows)
     """
 
     // MARK: Commands
@@ -231,6 +232,11 @@ final class DebugHarness {
             coordinator.syncSurfacesNow()
             return "ok"
         case "popover":
+            if rest == ["open"] {
+                coordinator.showPopover()
+                coordinator.syncSurfacesNow()
+                return "ok"
+            }
             // What the real status item reports when something may close the popover (SPEC §3.8).
             let causes: [String: PopoverCloseCause] = [
                 "click-outside": .clickOutside, "esc": .escape, "other-app": .otherAppActive,
@@ -238,7 +244,7 @@ final class DebugHarness {
             ]
             guard let cause = rest.first.flatMap({ causes[$0] }),
                   rest.count == 1 || (rest.count == 2 && rest[1] == "pointer-on") else {
-                return "error: popover \(causes.keys.sorted().joined(separator: "|")) [pointer-on]"
+                return "error: popover open | popover \(causes.keys.sorted().joined(separator: "|")) [pointer-on]"
             }
             coordinator.actions.popoverMayClose(cause, rest.count == 2)
             coordinator.syncSurfacesNow()

@@ -1,3 +1,4 @@
+import BreakpointRuntime
 import Foundation
 
 /// The design system on Windows (SPEC §4): the same palette, steps, sizes and durations as the
@@ -35,7 +36,8 @@ public enum Theme {
         }
     }
 
-    public enum Tone: String, Sendable, CaseIterable { case brand, agent, needsYou, mint, neutral }
+    /// The colour roles, shared with the coordinator and the macOS app (`BreakpointRuntime.Tone`).
+    public typealias Tone = BreakpointRuntime.Tone
 
     public enum TextStep: Sendable {
         case title, body, label, secondary, hint, hairline, outline, fill
@@ -72,6 +74,7 @@ public enum Theme {
         public static let totalsNumber = TextStyle(size: 30, weight: 700, monospacedDigits: true)
         public static let totalsUnit = TextStyle(size: 15, weight: 600)
         public static let caption = TextStyle(size: 13)
+        public static let captionWrapped = TextStyle(size: 13, wrap: true)
         public static let body = TextStyle(size: 13)
         public static let bodyWrapped = TextStyle(size: 13, wrap: true)
         public static let bodySemibold = TextStyle(size: 13, weight: 600)

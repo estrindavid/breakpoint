@@ -1,33 +1,33 @@
 import Foundation
 import BreakpointCore
-import BreakpointRuntime
 
-// What the popover says, derived from `AppState`
-// in one place so the view stays declarative and every state reads deliberately.
+// What the popover (macOS) and the tray flyout (Windows) say, derived from `AppState` in one
+// place so both views stay declarative and every state reads the same on both. Glyphs are named
+// by their SF Symbol; the Windows app maps each to its own drawing (`Glyphs`).
 
 @MainActor
-enum PopoverModel {
+public enum PopoverModel {
     /// The status block: caption over one big value (number + unit), and one detail line.
-    struct Status: Equatable {
-        var caption: String
+    public struct Status: Equatable {
+        public var caption: String
         /// The big value's leading small word ("until"), if any.
-        var prefix: String?
+        public var prefix: String?
         /// The big value ("6", "1:12", "15:30", "Now"); `nil` shows no number (call pause).
-        var number: String?
+        public var number: String?
         /// The unit after the number ("min"), small.
-        var unit: String?
+        public var unit: String?
         /// Drives the digit roll.
-        var rollValue: Double
-        var detail: String
+        public var rollValue: Double
+        public var detail: String
         /// Progress toward the break the caption names (or through the current break), 0…1.
-        var ringProgress: Double
-        var ringDimmed: Bool
+        public var ringProgress: Double
+        public var ringDimmed: Bool
         /// The ring's glyph: the kind the caption names, so a stretch figure never sits beside
         /// "Eye rest in".
-        var ringSymbol: String
+        public var ringSymbol: String
     }
 
-    static func status(_ state: AppState) -> Status {
+    public static func status(_ state: AppState) -> Status {
         let status = state.status
         let now = state.now
         let still = status.nextBreakProgress
@@ -85,13 +85,13 @@ enum PopoverModel {
 
     /// "Why not now?" under the status block (§3.8): only while a break is due and is not on offer
     /// or paused, the one moment the status block cannot answer it ("Stretch due" but no nudge).
-    static func whyNotNow(_ state: AppState) -> String? {
+    public static func whyNotNow(_ state: AppState) -> String? {
         guard state.activeBreak == nil, let reason = state.status.whyNotNow, reason.explainsADueBreak else { return nil }
         return Copy.whyNotNow(reason, now: state.now)
     }
 
     /// "You planned to stop at 23:00." once the wind-down stop time has passed today.
-    static func windDownLine(_ state: AppState) -> String? {
+    public static func windDownLine(_ state: AppState) -> String? {
         let settings = state.settings
         guard settings.windDownEnabled, settings.stopDays.contains(state.now) else { return nil }
         let stop = settings.stopTime.date(on: state.now)
@@ -100,7 +100,7 @@ enum PopoverModel {
     }
 
     /// "1 h 5 min" → ("1 h 5", "min"); "6 min" → ("6", "min"); "1 h" → ("1", "h").
-    static func splitUnit(_ text: String) -> (String, String?) {
+    public static func splitUnit(_ text: String) -> (String, String?) {
         guard let space = text.lastIndex(of: " ") else { return (text, nil) }
         let unit = String(text[text.index(after: space)...])
         guard unit.allSatisfy(\.isLetter) else { return (text, nil) }
@@ -108,29 +108,29 @@ enum PopoverModel {
     }
 
     /// Menu label lengths: "20 sec", "2 min", "5 min", "1 min".
-    static func lengthLabel(_ kind: BreakKind) -> String {
+    public static func lengthLabel(_ kind: BreakKind) -> String {
         let length = kind.defaultLength
         return length < 60 ? "\(Int(length)) sec" : "\(Int(length / 60)) min"
     }
 
     // MARK: Agents
 
-    struct AgentRow: Identifiable, Equatable {
-        var id: String
-        var symbol: String
-        var title: String
-        var chip: String
-        var tone: Theme.Tone
-        var elapsed: String
-        var accessibility: String
+    public struct AgentRow: Identifiable, Equatable {
+        public var id: String
+        public var symbol: String
+        public var title: String
+        public var chip: String
+        public var tone: Tone
+        public var elapsed: String
+        public var accessibility: String
     }
 
-    static func agentRows(_ state: AppState) -> [AgentRow] {
+    public static func agentRows(_ state: AppState) -> [AgentRow] {
         let now = state.now
         var rows = state.sessions.map { session -> AgentRow in
             let folder = session.projectName ?? session.displayName
             let chip: String
-            let tone: Theme.Tone
+            let tone: Tone
             let elapsed: String
             switch session.state {
             case .working:
@@ -159,25 +159,25 @@ enum PopoverModel {
 
     /// How long ago an idle session last ran, coarse and in the popover's own units, so it never
     /// reads like the running stopwatch of a working row: "just now", "12 min ago", "9 h ago".
-    static func ago(_ seconds: TimeInterval) -> String {
+    public static func ago(_ seconds: TimeInterval) -> String {
         if seconds < 60 { return "just now" }
         if seconds < 3600 { return "\(DurationFormat.minutes(seconds)) ago" }
         return "\(Int(seconds / 3600)) h ago"
     }
 
     /// No tool is installed: the agents section invites the user to connect one.
-    static func showsConnectPrompt(_ state: AppState) -> Bool {
+    public static func showsConnectPrompt(_ state: AppState) -> Bool {
         state.sessions.isEmpty && state.commands.isEmpty && !state.integrations.contains { $0.status.isInstalled }
     }
 
     // MARK: Footer
 
-    struct Footer: Equatable {
-        var text: String
-        var tone: Theme.Tone?
+    public struct Footer: Equatable {
+        public var text: String
+        public var tone: Tone?
     }
 
-    static func footer(_ state: AppState) -> Footer {
+    public static func footer(_ state: AppState) -> Footer {
         let installed = state.integrations.filter { $0.status.isInstalled }
         guard !installed.isEmpty else { return Footer(text: "No tools connected yet", tone: nil) }
         let heard = installed.compactMap { row -> (String, Date)? in

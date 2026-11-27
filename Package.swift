@@ -68,7 +68,7 @@ let platformTargets: [Target] = [
         linkerSettings: [
             .linkedLibrary("d2d1"), .linkedLibrary("dwrite"), .linkedLibrary("d3d11"), .linkedLibrary("dxgi"),
             .linkedLibrary("dcomp"), .linkedLibrary("windowscodecs"), .linkedLibrary("dxguid"), .linkedLibrary("uuid"),
-            .linkedLibrary("wtsapi32"), .linkedLibrary("powrprof"), .linkedLibrary("winhttp"),
+            .linkedLibrary("wtsapi32"), .linkedLibrary("powrprof"), .linkedLibrary("winhttp"), .linkedLibrary("shell32"),
         ]
     ),
     // Win32: the tray icon, every window and pop-up, the design system, system services.

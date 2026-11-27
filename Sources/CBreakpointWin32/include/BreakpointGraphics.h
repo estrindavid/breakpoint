@@ -106,6 +106,10 @@ void bp_draw_text_layout(BPSurface *surface, BPTextLayout *layout, float x, floa
 /// The index (UTF-16) of the character at (x, y) in the layout, for hit testing links; -1 if none.
 int bp_text_layout_hit(BPTextLayout *layout, float x, float y);
 
+/// Erase mode: shapes drawn while it is on are taken out of what was drawn before (their alpha is
+/// how much: draw them opaque to punch holes).
+void bp_set_erase(BPSurface *surface, int on);
+
 // MARK: Icons
 
 /// Draws with `draw` into a 32-bit `size`×`size` bitmap and returns an HICON (the tray mark).
@@ -113,6 +117,8 @@ typedef void (*BPIconDrawer)(BPSurface *surface, void *context);
 void *bp_make_icon(int size, BPIconDrawer draw, void *context);
 /// Same, into a premultiplied BGRA buffer of `size`×`size`×4 bytes (snapshots, tests).
 int bp_render_pixels(int width, int height, float scale, BPIconDrawer draw, void *context, uint8_t *pixels);
+/// Writes `width`×`height` premultiplied BGRA pixels as a PNG at `path` (UTF-16; snapshots). 0 on success.
+int bp_write_png(const uint16_t *path, int width, int height, const uint8_t *pixels);
 
 #ifdef __cplusplus
 }

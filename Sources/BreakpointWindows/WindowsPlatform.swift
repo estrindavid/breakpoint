@@ -20,7 +20,7 @@ public final class WindowsPlatform: AppPlatform {
     public func makeUpdateFetcher() -> UpdateFetching { WindowsUpdateFetcher() }
 
     public func makeShell(state: AppState, actions: AppActions, options: LaunchOptions, paths: BreakpointPaths) -> PlatformShell {
-        PendingShell()
+        WindowsShell(state: state, actions: actions, options: options, paths: paths)
     }
 
     public func quit() {
@@ -146,27 +146,13 @@ enum MessageBoxes {
 }
 
 extension Dialogs {
-    /// The window a dialog belongs to: Settings when it is open, else none (the dialog then
-    /// stands alone in the taskbar).
-    @MainActor static var ownerWindow: HWND? { GetForegroundWindow() }
-}
-
-/// Until the Windows surfaces land: no windows (the headless harness does not use a shell).
-@MainActor
-final class PendingShell: PlatformShell {
-    let surfaces: [SurfaceController] = []
-    var onPopupEvicted: ((UUID) -> Void)?
-    var hasStatusItem: Bool { false }
-    func installStatusItem() {}
-    func showPopover() {}
-    func closePopover() {}
-    func statusItemDiagnostics() -> String? { nil }
-    func showSettings() {}
-    func closeSettings() {}
-    func showOnboarding() {}
-    var isOnboardingVisible: Bool { false }
-    func relayoutPopups() {}
-    func dismissAllPopups() {}
-    func stop() {}
-    var registeredHotKeys: Int { 0 }
+    /// The window a dialog belongs to: Breakpoint's own foreground window (Settings) when it has
+    /// one, else none (the dialog then stands alone). Never another app's window: a dialog owned
+    /// by it would disable that app until answered.
+    @MainActor static var ownerWindow: HWND? {
+        guard let window = GetForegroundWindow() else { return nil }
+        var process: DWORD = 0
+        GetWindowThreadProcessId(window, &process)
+        return process == GetCurrentProcessId() ? window : nil
+    }
 }
