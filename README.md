@@ -32,7 +32,7 @@ curl -fsSL https://github.com/estrindavid/breakpoint/releases/latest/download/in
 ```
 
 <p align="center">
-  <sub>macOS 14 or later · no account · not signed by Apple: <b>Install and updates</b>, below, says what that means</sub>
+  <sub>macOS 14 or later · no account · free </sub>
 </p>
 
 <br>
