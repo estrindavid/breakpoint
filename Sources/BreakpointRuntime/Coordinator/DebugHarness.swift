@@ -1,7 +1,6 @@
 #if DEBUG
-import AppKit
+import Foundation
 import BreakpointCore
-import BreakpointKit
 
 // The end-to-end harness (debug builds only; compiled out of release builds, which
 // scripts/build-app.sh makes). It lets scripts/e2e.sh drive the whole app through the real
@@ -475,9 +474,9 @@ final class DebugHarness {
                 "chip": active.agentChip.text, "preview": active.isPreview, "ambient": active.ambient,
                 "rehearsal": active.isRehearsal,
                 "hint": active.hint ?? NSNull(),
-                "controls": OverlayPresentation.controls(for: active).map { "\($0)" },
+                "controls": OverlayControls.controls(for: active).map { "\($0)" },
             ]
-            if OverlayPresentation.hasPrimary(active) { info["primary"] = OverlayPresentation.primaryTitle(active) }
+            if OverlayControls.hasPrimary(active) { info["primary"] = OverlayControls.primaryTitle(active) }
             if let step = active.step { info["step"] = "\(step.index + 1)/\(step.count)" }
             if let detail = active.detail { info["detail"] = detail }
             if let routine = c.breakSession?.routine {
@@ -551,7 +550,7 @@ final class DebugHarness {
         }
         object["integrations"] = integrations
         object["nativeCursorInstalled"] = c.tracker.nativeCursorInstalled
-        object["hotkeys"] = c.hotKeys.registeredCount
+        object["hotkeys"] = c.shell.registeredHotKeys
         object["rotation"] = ["next": c.nextRoutineID, "last": c.rotation.lastRoutineID ?? NSNull(),
                               "stretchesStarted": c.rotation.stretchesStarted,
                               "copyLast": c.rotation.copyBags.compactMapValues(\.last)] as [String: Any]
@@ -704,7 +703,7 @@ final class SurfaceRecorder: SurfaceController {
             if let hint = active.hint { line += " hint \"\(hint)\"" }
             if active.doneAvailable { line += " done-available" }
             if active.extensionsUsed > 0 { line += " +\(active.extensionsUsed) min" }
-            if OverlayPresentation.hasPrimary(active) { line += " primary \"\(OverlayPresentation.primaryTitle(active))\"" }
+            if OverlayControls.hasPrimary(active) { line += " primary \"\(OverlayControls.primaryTitle(active))\"" }
             if let step = active.step { line += " step \(step.index + 1)/\(step.count)" }
             if let detail = active.detail { line += " idea \"\(detail)\"" }
             now["break"] = line
@@ -791,6 +790,9 @@ final class SimulatedActivityMonitor: ActivityMonitoring {
         lastDragAt = start.addingTimeInterval(-30)
         lastScrollAt = start.addingTimeInterval(-30)
     }
+
+    /// The coordinator asks the harness first (`simulatedSignalReport`); nothing more here.
+    func diagnosticReport() -> String { "" }
 
     func sample() -> InputSample {
         let now = now()
@@ -925,5 +927,36 @@ final class RecordingSound: SoundPlaying {
         played.append(sound)
         onPlay?(sound)
     }
+}
+/// The platform's real windows plus the recorder, which then only traces (`--debug-trace` with
+/// windows shown; the real controllers own the timers).
+@MainActor
+final class TracingShell: PlatformShell {
+    let base: PlatformShell
+    let recorder: SurfaceRecorder
+
+    init(_ base: PlatformShell, recorder: SurfaceRecorder) {
+        self.base = base
+        self.recorder = recorder
+    }
+
+    var surfaces: [SurfaceController] { base.surfaces + [recorder] }
+    var hasStatusItem: Bool { base.hasStatusItem }
+    func installStatusItem() { base.installStatusItem() }
+    func showPopover() { base.showPopover() }
+    func closePopover() { base.closePopover() }
+    func statusItemDiagnostics() -> String? { base.statusItemDiagnostics() }
+    func showSettings() { base.showSettings() }
+    func closeSettings() { base.closeSettings() }
+    func showOnboarding() { base.showOnboarding() }
+    var isOnboardingVisible: Bool { base.isOnboardingVisible }
+    func relayoutPopups() { base.relayoutPopups() }
+    func dismissAllPopups() { base.dismissAllPopups() }
+    var onPopupEvicted: ((UUID) -> Void)? {
+        get { base.onPopupEvicted }
+        set { base.onPopupEvicted = newValue }
+    }
+    func stop() { base.stop() }
+    var registeredHotKeys: Int { base.registeredHotKeys }
 }
 #endif

@@ -1,6 +1,5 @@
 import Foundation
 import BreakpointCore
-import BreakpointKit
 
 // First-use hints (SPEC §3.12). `HintPolicy` (Core) decides; this file keeps what is on screen,
 // saves what is known, and lets the tour mark what it taught.
@@ -21,7 +20,7 @@ extension AppCoordinator {
     /// Whether a surface appearing now carries `lesson`'s hint. If it does, its surface is marked
     /// known and saved at once, so it never carries one again.
     func takeHint(_ lesson: HintLesson, isPreview: Bool = false) -> Bool {
-        let context = HintPolicy.Context(tourRunning: tour != nil, onboardingOpen: onboarding?.isVisible == true,
+        let context = HintPolicy.Context(tourRunning: tour != nil, onboardingOpen: shell.isOnboardingVisible,
                                          hintOnScreen: hintOnScreen, isPreview: isPreview)
         guard HintPolicy.shows(lesson, settings: settings, context: context) else { return false }
         settings = HintPolicy.markingShown(lesson, in: settings)
@@ -76,8 +75,8 @@ extension AppCoordinator {
 
     /// Closes the popover (headless: as if it closed).
     func closePopover() {
-        if let statusItem {
-            statusItem.closePopover()
+        if shell.hasStatusItem {
+            shell.closePopover()
         } else {
             popoverVisibilityChanged(false)
         }

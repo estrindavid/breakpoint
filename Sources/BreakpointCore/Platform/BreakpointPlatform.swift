@@ -1,4 +1,7 @@
 import Foundation
+#if os(Windows)
+import WinSDK
+#endif
 
 /// The few words and facts that differ between the macOS and Windows apps. Everything else in Core
 /// is the same on both.
@@ -32,6 +35,18 @@ public enum Executable {
         return head == Data("MZ".utf8)
         #else
         return FileManager.default.isExecutableFile(atPath: url.path)
+        #endif
+    }
+}
+
+/// An error code from a system call, in the system's own words (`strerror` on macOS; Windows'
+/// message table for Win32 and Winsock codes).
+public enum SystemErrorText {
+    public static func describe(_ code: Int32) -> String {
+        #if os(Windows)
+        return WindowsError.message(DWORD(bitPattern: code))
+        #else
+        return String(cString: strerror(code))
         #endif
     }
 }

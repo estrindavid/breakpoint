@@ -1,17 +1,9 @@
 import Foundation
 import ServiceManagement
 import BreakpointCore
+import BreakpointRuntime
 
-/// "Open at login" (SPEC §3.9 General, §3.10 Done) via `SMAppService.mainApp`.
-///
-/// Contract: `isEnabled` reads the service status; `setEnabled` registers or unregisters and
-/// throws on failure (the settings row then shows the error in its description). Registers only
-/// from an app bundle in an Applications folder (`LoginItemAvailability`); a no-op otherwise.
-@MainActor
-public protocol LoginItemControlling: AnyObject {
-    var isEnabled: Bool { get }
-    func setEnabled(_ enabled: Bool) throws
-}
+// `LoginItemControlling` is declared in BreakpointRuntime (Platform/PlatformServices.swift).
 
 /// The login item's real state, for the General pane's description.
 public enum LoginItemStatus: Equatable, Sendable {
@@ -30,6 +22,9 @@ public enum LoginItemStatus: Equatable, Sendable {
 @MainActor
 public final class LoginItem: LoginItemControlling {
     public init() {}
+
+    /// This copy's `LoginItemAvailability` (`LoginItemControlling`).
+    public func availability() -> LoginItemAvailability { Self.availability() }
 
     /// The current state, read from the system each time.
     public static var status: LoginItemStatus {

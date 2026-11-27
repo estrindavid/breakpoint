@@ -1,5 +1,6 @@
 import SwiftUI
 import BreakpointCore
+import BreakpointRuntime
 
 // Neutral glyphs for agent sources and tools in
 // the popover's agent rows and the Integrations pane. Never a tool's own logo (identity, §4.1).

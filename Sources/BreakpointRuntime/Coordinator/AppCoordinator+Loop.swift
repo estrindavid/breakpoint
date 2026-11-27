@@ -1,6 +1,5 @@
-import AppKit
+import Foundation
 import BreakpointCore
-import BreakpointKit
 
 // The engine loop (SPEC §2.3–2.8, §3.1, §3.3). All decisions are delegated to Core: this file
 // only sequences them and applies their results.
@@ -500,7 +499,7 @@ extension AppCoordinator {
             // and once more to carry the first call pause's hint (§3.12).
             if callStarted, let signals = pause.callSignals {
                 let hintShows = HintPolicy.shows(.callPause, settings: settings, context: HintPolicy.Context(
-                    tourRunning: tour != nil, onboardingOpen: onboarding?.isVisible == true, hintOnScreen: hintOnScreen))
+                    tourRunning: tour != nil, onboardingOpen: shell.isOnboardingVisible, hintOnScreen: hintOnScreen))
                 if HintPolicy.showsCallPauseToast(nudgeWasVisible: nudgeWasVisible, breakDue: nextBreakIn() <= 0,
                                                   hintShows: hintShows) {
                     let hint = takeHint(.callPause) ? HintCopy.callPause : nil

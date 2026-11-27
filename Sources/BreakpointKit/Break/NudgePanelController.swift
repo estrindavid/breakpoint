@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import BreakpointCore
+import BreakpointRuntime
 
 // SPEC §3.1.
 

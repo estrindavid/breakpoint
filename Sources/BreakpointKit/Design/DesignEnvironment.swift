@@ -1,4 +1,5 @@
 import SwiftUI
+import BreakpointRuntime
 
 /// How glass surfaces render.
 public enum GlassRendering: Sendable {

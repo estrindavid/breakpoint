@@ -1,17 +1,9 @@
 import AVFoundation
 import AppKit
 import BreakpointCore
+import BreakpointRuntime
 
-/// Synthesised sounds (SPEC §4.7): the chimes are two sine partials, ≥ 30 ms attack, ~1.5 s
-/// exponential decay, no transient spike, ≤ −18 LUFS at full volume, via `AVAudioEngine`; the
-/// step tick is a short, quieter cue of the same family.
-///
-/// Contract: `play` returns immediately; `volume` is 0…1 (`Settings.volume`). The coordinator never
-/// calls it while a call signal is active. No bundled audio files.
-@MainActor
-public protocol SoundPlaying: AnyObject {
-    func play(_ sound: SoundID, volume: Double)
-}
+// `SoundPlaying` is declared in BreakpointRuntime (Platform/PlatformServices.swift).
 
 /// The cues, synthesised once and played through an `AVAudioEngine` that runs only while a
 /// cue is sounding (so the audio hardware is not kept awake between cues). Output only: no

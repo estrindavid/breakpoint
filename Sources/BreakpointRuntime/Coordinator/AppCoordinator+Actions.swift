@@ -1,7 +1,5 @@
-import AppKit
-import UniformTypeIdentifiers
+import Foundation
 import BreakpointCore
-import BreakpointKit
 
 // `AppActions` implementations (SPEC §7.2).
 
@@ -79,8 +77,7 @@ extension AppCoordinator {
             copyWrapUpNote: { [weak self] in
                 guard let self else { return }
                 let lines = WindDownPolicy.wrapUpNote(sessions: self.tracker.sessionsByUrgency)
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+                self.platform.copyText(lines.joined(separator: "\n"))
             },
             install: { [weak self] id in self?.runIntegration(id, install: true) },
             uninstall: { [weak self] id in self?.runIntegration(id, install: false) },
@@ -98,10 +95,10 @@ extension AppCoordinator {
                 // The Integrations pane shows install states; re-read them in case a tool was
                 // connected with `breakpoint install` while the app ran.
                 self.refreshIntegrations()
-                self.settingsWindow?.show()
+                self.shell.showSettings()
                 self.recordSurface("settings shown")
             },
-            quit: { NSApp.terminate(nil) },
+            quit: { [weak self] in self?.platform.quit() },
             ignoreNudge: { [weak self] in
                 // The tour's sample nudge waits for Start or Not now.
                 guard let self, self.nudge?.isRehearsal != true else { return }
@@ -225,7 +222,7 @@ extension AppCoordinator {
             try? loginItem.setEnabled(updated.launchAtLogin)
         }
         if change.changed(\.codexHome) { refreshIntegrations() }
-        if change.changed(\.popupPosition) { panelStack.relayout() }
+        if change.changed(\.popupPosition) { shell.relayoutPopups() }
         let now = currentDate()
         if change.presenceRulesChanged {
             // "Pause during calls" switched off ends a call pause at once (and on starts one).
@@ -273,7 +270,22 @@ extension AppCoordinator {
         let environment = integrationEnvironment
         let bundled = bundledCLI
         let paths = self.paths
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let finish: @MainActor ([String], String?) -> Void = { [weak self] notes, failure in
+            guard let self else { return }
+            self.integrationNotes[id] = notes
+            self.integrationErrors[id] = failure
+            self.installCheckProblems[id] = nil
+            self.integrationConnectedAt[id] = nil
+            if install, failure == nil {
+                // Still busy: the row turns to Connected once the check passes.
+                self.startInstallCheck(id)
+            } else {
+                self.installChecks[id] = nil
+                self.integrationBusy.remove(id)
+            }
+            self.refreshIntegrations()
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
             var notes: [String] = []
             var failure: String?
             do {
@@ -288,22 +300,9 @@ extension AppCoordinator {
             } catch {
                 failure = error.localizedDescription
             }
+            let written = notes, problem = failure
             DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    self.integrationNotes[id] = notes
-                    self.integrationErrors[id] = failure
-                    self.installCheckProblems[id] = nil
-                    self.integrationConnectedAt[id] = nil
-                    if install, failure == nil {
-                        // Still busy: the row turns to Connected once the check passes.
-                        self.startInstallCheck(id)
-                    } else {
-                        self.installChecks[id] = nil
-                        self.integrationBusy.remove(id)
-                    }
-                    self.refreshIntegrations()
-                }
+                MainActor.assumeIsolated { finish(written, problem) }
             }
         }
     }
@@ -345,17 +344,18 @@ extension AppCoordinator {
         guard installChecks[id] == token else { return }
         installChecks[id] = nil
         let environment = integrationEnvironment
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let report: @MainActor (String) -> Void = { [weak self] problem in
+            guard let self, self.installChecks[id] == nil else { return }
+            log.error("Install check failed for \(id.rawValue, privacy: .public): \(problem, privacy: .public)")
+            self.integrationBusy.remove(id)
+            self.installCheckProblems[id] = problem
+            self.publish()
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
             let problem = InstallCheck.unreachableProblem(cliRuns: InstallCheck.cliRuns(paths: environment.paths),
                                                           environment: environment)
             DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    guard let self, self.installChecks[id] == nil else { return }
-                    log.error("Install check failed for \(id.rawValue, privacy: .public): \(problem, privacy: .public)")
-                    self.integrationBusy.remove(id)
-                    self.installCheckProblems[id] = problem
-                    self.publish()
-                }
+                MainActor.assumeIsolated { report(problem) }
             }
         }
     }
@@ -363,31 +363,20 @@ extension AppCoordinator {
     // MARK: - Privacy
 
     private func exportHistory() {
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = "Breakpoint history.json"
-        panel.allowedContentTypes = [.json]
-        NSApp.activate(ignoringOtherApps: true)
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            try historyStore.export(to: url)
-        } catch {
-            NSAlert(error: error).runModal()
-        }
+        let store = historyStore
+        platform.exportHistory(suggestedName: "Breakpoint history.json") { url in try store.export(to: url) }
     }
 
     private func deleteAllData() {
-        let alert = NSAlert()
-        alert.messageText = "Delete all Breakpoint data?"
-        alert.informativeText = "This removes your break history, the agent run-length estimates and the routine rotation from this Mac. Settings and installed integrations stay, along with the record and the backups of your tools’ config files that Breakpoint keeps so Remove can restore them exactly. This cannot be undone."
-        alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
-        alert.buttons.first?.hasDestructiveAction = true
-        NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let confirmed = platform.confirm(
+            title: "Delete all Breakpoint data?",
+            message: "This removes your break history, the agent run-length estimates and the routine rotation from this \(BreakpointPlatform.computerName). Settings and installed integrations stay, along with the record and the backups of your tools’ config files that Breakpoint keeps so Remove can restore them exactly. This cannot be undone.",
+            confirm: "Delete")
+        guard confirmed else { return }
         do {
             try deleteAllDataNow()
         } catch {
-            NSAlert(error: error).runModal()
+            platform.alert(title: "Breakpoint couldn’t delete its data", message: error.localizedDescription)
         }
     }
 

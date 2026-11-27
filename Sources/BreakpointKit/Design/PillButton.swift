@@ -1,4 +1,5 @@
 import SwiftUI
+import BreakpointRuntime
 
 /// Capsule buttons (SPEC §3.0, §3.3, §4.4). Every control is a capsule.
 ///

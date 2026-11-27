@@ -1,5 +1,6 @@
 import SwiftUI
 import BreakpointCore
+import BreakpointRuntime
 
 /// Breakpoint's design tokens (SPEC §4). Every colour, size, radius and duration a screen uses
 /// comes from here, so screens built in parallel look like one app.
@@ -72,19 +73,8 @@ public enum Theme {
         }
     }
 
-    /// The colour role of a badge, dot or chip.
-    public enum Tone: String, Sendable, CaseIterable {
-        /// The Breakpoint gradient: break kinds.
-        case brand
-        /// Indigo: agent working.
-        case agent
-        /// Amber: an agent needs you.
-        case needsYou
-        /// Solid mint: done, connected, selected.
-        case mint
-        /// Grey: idle.
-        case neutral
-    }
+    /// The colour role of a badge, dot or chip (declared in BreakpointRuntime, where `AppState` uses it).
+    public typealias Tone = BreakpointRuntime.Tone
 
     /// Neutral text and line steps on dark surfaces (§4.2). 50% is the lowest step allowed for text.
     public enum TextStep: Sendable {

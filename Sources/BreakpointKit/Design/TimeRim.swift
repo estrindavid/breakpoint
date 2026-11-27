@@ -1,5 +1,6 @@
 import SwiftUI
 import BreakpointCore
+import BreakpointRuntime
 
 // The time rim (SPEC §3.5, §4.6): a self-dismissing card's lit edge is its timer.
 //

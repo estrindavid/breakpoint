@@ -60,7 +60,7 @@ let platformTargets: [Target] = [
         cxxSettings: [.unsafeFlags(["-std=c++17"])],
         linkerSettings: [
             .linkedLibrary("d2d1"), .linkedLibrary("dwrite"), .linkedLibrary("d3d11"), .linkedLibrary("dxgi"),
-            .linkedLibrary("dcomp"), .linkedLibrary("windowscodecs"),
+            .linkedLibrary("dcomp"), .linkedLibrary("windowscodecs"), .linkedLibrary("dxguid"), .linkedLibrary("uuid"),
         ]
     ),
     // Win32: the tray icon, every window and pop-up, the design system, system services.

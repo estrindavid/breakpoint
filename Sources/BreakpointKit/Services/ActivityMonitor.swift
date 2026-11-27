@@ -4,6 +4,7 @@ import CoreGraphics
 import CoreMediaIO
 import IOKit.pwr_mgt
 import BreakpointCore
+import BreakpointRuntime
 
 // Reads only the SPEC §2.4 signals, all without a permission prompt.
 // Forbidden here and everywhere: NSEvent global monitors for key events, CGEventTap, the
@@ -11,33 +12,7 @@ import BreakpointCore
 // UNUserNotificationCenter. Nothing here reads which app is frontmost, which app uses the
 // microphone or camera, or any content: only timings, counts and on/off states.
 
-/// The input and presence signals of SPEC §2.4.
-///
-/// Contract:
-/// - `sample()` is cheap (called by the coordinator at 1 Hz, 10 Hz while a nudge or countdown is
-///   visible) and returns timings only: `CGEventSource.secondsSinceLastEventType` for key-down
-///   and any input, seconds since the last left-mouse down/drag and since the last scroll,
-///   `NSEvent.pressedMouseButtons`, whether any `PreventUserIdleDisplaySleep` assertion is held
-///   (`IOPMCopyAssertionsStatus`, count only) and whether any display is mirrored
-///   (`CGDisplayIsInMirrorSet`).
-/// - `callSignals`: the microphone signal comes from the shape and state of every audio device
-///   (transport type, input and output streams, `kAudioDevicePropertyDeviceIsRunningSomewhere`,
-///   nominal sample rate) through `MicrophoneUse` (Core); the camera signal is CoreMediaIO
-///   `kCMIODevicePropertyDeviceIsRunningSomewhere` on every video device. Both are kept current with
-///   property listeners; changes are reported through `onCallSignalsChange` on the main thread.
-/// - Lock/unlock, display sleep/wake, system sleep/wake, screensaver start/stop and session
-///   resign/activate are reported through `onPresenceEvent` on the main thread.
-/// - `start()` installs listeners; `stop()` removes them. Both idempotent.
-@MainActor
-public protocol ActivityMonitoring: AnyObject {
-    var onCallSignalsChange: ((CallSignals) -> Void)? { get set }
-    var onPresenceEvent: ((PresenceEvent) -> Void)? { get set }
-    /// The current call signals (unfiltered by settings).
-    var callSignals: CallSignals { get }
-    func sample() -> InputSample
-    func start()
-    func stop()
-}
+// `ActivityMonitoring` is declared in BreakpointRuntime (Platform/PlatformServices.swift).
 
 /// The live monitor.
 ///

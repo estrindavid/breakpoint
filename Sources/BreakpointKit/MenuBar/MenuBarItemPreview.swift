@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import BreakpointCore
+import BreakpointRuntime
 
 // A faithful drawing of the status item, built from
 // the exact template image the real `NSStatusItem` shows, for snapshots, the General pane's live

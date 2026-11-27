@@ -1,6 +1,5 @@
-import AppKit
+import Foundation
 import BreakpointCore
-import BreakpointKit
 
 // Updates (SPEC §2.11): at most once a day, at a quiet moment, one GET of the release feed; a calm
 // prompt when a newer version exists; Update downloads the archive, checks its Ed25519 signature
@@ -18,7 +17,7 @@ extension AppCoordinator {
     }
 
     /// The app bundle an install replaces (the harness can point it at a stand-in).
-    var updateInstallLocation: URL { updateLocationOverride ?? Bundle.main.bundleURL }
+    var updateInstallLocation: URL { updateLocationOverride ?? platform.appLocation }
 
     /// The release key this copy trusts (the harness can use a throwaway test key).
     var updatePublicKey: String? { updateKeyOverride ?? UpdateKey.publicKeyBase64 }
@@ -183,25 +182,21 @@ extension AppCoordinator {
 
     /// Hands over to `breakpoint update-relaunch`, run from the old copy (now the backup), and quits.
     private func reopenAfterUpdate(_ swapped: SwappedUpdate) {
-        let helper = swapped.backup.appendingPathComponent("Contents/Helpers/breakpoint")
+        let helper = platform.relaunchHelper(in: swapped.backup)
         let pid = ProcessInfo.processInfo.processIdentifier
         if isHeadless {
             recordSurface("reopen: \(helper.path) update-relaunch --pid \(pid), then quit (not in the harness)")
             return
         }
-        guard FileManager.default.isExecutableFile(atPath: helper.path) else {
+        guard Executable.isRunnable(helper) else {
             try? UpdateInstaller.rollback(swapped)
             try? FileManager.default.removeItem(at: paths.pendingUpdateFile)
             failInstall(.swapFailed("no relaunch helper"), release: updateState().release)
             return
         }
         // Detached, so it outlives this process; it inherits BREAKPOINT_HOME.
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "nohup \"$0\" update-relaunch --pid \"$1\" >/dev/null 2>&1 &", helper.path, "\(pid)"]
         do {
-            try process.run()
-            process.waitUntilExit()
+            try platform.startRelaunchHelper(helper, pid: pid)
         } catch {
             try? UpdateInstaller.rollback(swapped)
             try? FileManager.default.removeItem(at: paths.pendingUpdateFile)
@@ -209,7 +204,7 @@ extension AppCoordinator {
             return
         }
         log.info("Update installed; reopening")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.platform.quit() }
     }
 
     private func setInstallStep(_ step: UpdateInstallStep, release: UpdateRelease) {
@@ -259,7 +254,7 @@ extension AppCoordinator {
         if isHeadless {
             recordSurface("opened \(release.page.absoluteString)")
         } else {
-            NSWorkspace.shared.open(release.page)
+            platform.open(release.page)
         }
         postponeUpdate(release.version)
         cards.removeAll { if case .update = $0.content { return true } else { return false } }

@@ -11,7 +11,7 @@ public enum MenuBarMark: String, Sendable, CaseIterable {
     case idle, due, onBreak, paused
 
     /// The `BrandMark` variant that draws this state.
-    public var variant: BrandMark.Variant {
+    public var variant: MarkVariant {
         switch self {
         case .idle: return .idle
         case .due: return .due
@@ -24,7 +24,7 @@ public enum MenuBarMark: String, Sendable, CaseIterable {
 public struct MenuBarState: Equatable, Sendable {
     public var mark: MenuBarMark
     /// Agent working (dot) / needs you (ring) / none.
-    public var badge: BrandMark.Badge
+    public var badge: MarkBadge
     /// Text next to the icon per `Settings.menuBarText` ("6m", "due", "Claude 3m", "Paused");
     /// `nil` for none.
     public var text: String?
@@ -34,7 +34,7 @@ public struct MenuBarState: Equatable, Sendable {
     /// The latest one-shot movement of the mark (SPEC §3.7); the status item plays each `id` once.
     public var cue: MarkCueEvent?
 
-    public init(mark: MenuBarMark = .idle, badge: BrandMark.Badge = .none, text: String? = nil, tooltip: String = "Breakpoint",
+    public init(mark: MenuBarMark = .idle, badge: MarkBadge = .none, text: String? = nil, tooltip: String = "Breakpoint",
                 cue: MarkCueEvent? = nil) {
         self.mark = mark
         self.badge = badge
@@ -175,7 +175,7 @@ public enum AgentChipState: Equatable, Sendable {
     }
 
     /// `nil` for the clock (no dot).
-    public var tone: Theme.Tone? {
+    public var tone: Tone? {
         switch self {
         case .clock: return nil
         case .working, .severalWorking: return .agent

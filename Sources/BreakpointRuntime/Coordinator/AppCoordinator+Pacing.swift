@@ -1,6 +1,5 @@
 import Foundation
 import BreakpointCore
-import BreakpointKit
 
 // A break you can follow without watching the screen (SPEC §3.3 Ending, §3.4, §4.7): the soft
 // tick at each step change, the walk's idea line, and the closing moment of a completed break.

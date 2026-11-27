@@ -1,4 +1,5 @@
 import SwiftUI
+import BreakpointRuntime
 
 // The coach family (SPEC §3.12): one visual language for the tour's coach lines and the first-use
 // hints. A small mint dot marks every line that teaches (at the end of a coach line's pointer, at

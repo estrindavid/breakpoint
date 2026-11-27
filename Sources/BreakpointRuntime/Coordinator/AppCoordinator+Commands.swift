@@ -1,6 +1,5 @@
-import AppKit
+import Foundation
 import BreakpointCore
-import BreakpointKit
 
 // Socket commands (`WireMessage.command`) and the socket's start-up problems.
 //
@@ -30,11 +29,11 @@ extension AppCoordinator {
 
     /// The activity monitor's plain-text report of every signal it reads (no names).
     func signalReport() -> String {
-        if let live = monitor as? ActivityMonitor { return live.diagnosticReport() }
         #if DEBUG
         if let report = harness?.simulatedSignalReport(now: currentDate()) { return report }
         #endif
-        return "Signals are not available."
+        let report = monitor.diagnosticReport()
+        return report.isEmpty ? "Signals are not available." : report
     }
 
     // MARK: - Start-up problems with the socket (§5.1)
@@ -58,7 +57,7 @@ extension AppCoordinator {
         case SocketServerError.pathTooLong(let path):
             return "The path \(path) is too long for Breakpoint's connection, so it can't hear from your coding tools."
         case SocketServerError.system(let call, let code):
-            return "Breakpoint couldn't open its connection for your coding tools (\(call): \(String(cString: strerror(code)))). Quit and reopen Breakpoint; `breakpoint doctor` shows more."
+            return "Breakpoint couldn't open its connection for your coding tools (\(call): \(SystemErrorText.describe(code))). Quit and reopen Breakpoint; `breakpoint doctor` shows more."
         default:
             return "Breakpoint couldn't open its connection for your coding tools. Quit and reopen Breakpoint; `breakpoint doctor` shows more."
         }
@@ -71,13 +70,9 @@ extension AppCoordinator {
             recordSurface("alert: \(sentence)")
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            let alert = NSAlert()
-            alert.messageText = "Breakpoint can't hear from your coding tools"
-            alert.informativeText = sentence + "\n\nBreaks offered while you pause typing still work in the meantime."
-            alert.addButton(withTitle: "OK")
-            NSApp.activate()
-            alert.runModal()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            self?.platform.alert(title: "Breakpoint can't hear from your coding tools",
+                                 message: sentence + "\n\nBreaks offered while you pause typing still work in the meantime.")
         }
     }
 }

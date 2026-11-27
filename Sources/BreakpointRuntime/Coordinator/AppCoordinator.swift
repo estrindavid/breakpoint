@@ -1,17 +1,14 @@
-import AppKit
-import Combine
-import os
+import Foundation
 import BreakpointCore
-import BreakpointKit
 
-/// SwiftUI's `Settings` scene type would make `Settings` ambiguous here; this target means Core's.
-typealias Settings = BreakpointCore.Settings
-
-let log = Logger(subsystem: BreakpointVersion.bundleIdentifier, category: "app")
 
 /// The only place that knows about everything (SPEC §7.3). Owns the stores, the session tracker,
 /// the clocks and policies' state, the system services, the socket server, the engine loop and
 /// every window controller. Maps Core state into `AppState` and implements `AppActions`.
+///
+/// Shared by both apps: the operating system reaches it only through `AppPlatform` (services,
+/// alerts, the clipboard, quitting) and `PlatformShell` (the windows and pop-ups), so the engine
+/// loop, decisions, wording and the debug harness are the same on macOS and Windows.
 ///
 /// Files:
 /// - `AppCoordinator.swift` — ownership, start and stop, wiring.
@@ -23,7 +20,7 @@ let log = Logger(subsystem: BreakpointVersion.bundleIdentifier, category: "app")
 ///   start-up problems, and (debug builds) the end-to-end harness: simulated signals, the
 ///   adjustable clock, headless recording surfaces and `breakpoint debug`.
 @MainActor
-final class AppCoordinator {
+public final class AppCoordinator {
     // MARK: Environment
 
     let paths: BreakpointPaths
@@ -150,41 +147,36 @@ final class AppCoordinator {
     var debugInstallCheckEnvironment: [String: String] = [:]
     #endif
 
-    // MARK: Kit
+    // MARK: Platform
 
-    let state: AppState
+    public let state: AppState
     private(set) var actions = AppActions.noop
+    let platform: AppPlatform
     let monitor: ActivityMonitoring
     let headphones: HeadphoneMotionMonitoring
     let sound: SoundPlaying
     let loginItem: LoginItemControlling
-    let hotKeys = HotKeyCenter()
-    let focusRestorer = FocusRestorer()
-    let watchdog: OverlayWatchdog
-    let panelStack: TransientPanelStack
     /// The app's only network access: the release feed (SPEC §2.11).
     let updateFetcher: UpdateFetching
 
-    // MARK: Controllers
+    // MARK: Windows
 
-    // All nil when windows are suppressed (`--debug-headless`).
-    private(set) var statusItem: StatusItemController?
-    private(set) var settingsWindow: SettingsWindowController?
-    private(set) var onboarding: OnboardingWindowController?
-    private(set) var overlay: BreakOverlayController?
-    private(set) var surfaces: [SurfaceController] = []
+    /// The windows, pop-ups and status item (a headless stand-in under `--debug-headless`).
+    private(set) var shell: PlatformShell = HeadlessShell(surfaces: [])
+    var surfaces: [SurfaceController] { shell.surfaces }
 
     // MARK: Wire and loop
 
     let server: EventSocketServer
     private var tickTimer: Timer?
     private var tickInterval: TimeInterval = 0
-    private var stateObservation: AnyCancellable?
+    private var stateObservation: StateSubscription?
     private var syncScheduled = false
 
-    init(paths: BreakpointPaths, options: LaunchOptions, now: Date = Date()) {
+    public init(paths: BreakpointPaths, options: LaunchOptions, platform: AppPlatform, now: Date = Date()) {
         self.paths = paths
         self.options = options
+        self.platform = platform
         settingsStore = SettingsStore(paths: paths)
         historyStore = HistoryStore(paths: paths, calendar: .autoupdatingCurrent)
         estimatorFile = RunLengthEstimator.file(paths)
@@ -204,21 +196,18 @@ final class AppCoordinator {
         #if DEBUG
         let harness = DebugHarness(options: options.debug)
         self.harness = harness
-        monitor = harness.monitor ?? ActivityMonitor()
-        headphones = harness.headphones ?? HeadphoneMotionMonitor()
-        sound = harness.sound ?? SoundPlayer()
+        monitor = harness.monitor ?? platform.makeActivityMonitor()
+        headphones = harness.headphones ?? platform.makeHeadphoneMonitor()
+        sound = harness.sound ?? platform.makeSoundPlayer()
         // The harness never touches the network: its feed is a local file or a simulated failure.
-        updateFetcher = harness.updateFetcher ?? UpdateFetcher()
+        updateFetcher = harness.updateFetcher ?? platform.makeUpdateFetcher()
         #else
-        monitor = ActivityMonitor()
-        headphones = HeadphoneMotionMonitor()
-        sound = SoundPlayer()
-        updateFetcher = UpdateFetcher()
+        monitor = platform.makeActivityMonitor()
+        headphones = platform.makeHeadphoneMonitor()
+        sound = platform.makeSoundPlayer()
+        updateFetcher = platform.makeUpdateFetcher()
         #endif
-        loginItem = LoginItem()
-        watchdog = OverlayWatchdog(logURL: paths.watchdogLog, appURL: Bundle.main.bundleURL)
-        let settingsForStack = { [weak state] in state?.settings.popupPosition ?? .topCentre }
-        panelStack = TransientPanelStack(position: settingsForStack)
+        loginItem = platform.makeLoginItem()
         server = EventSocketServer(socketPath: SocketPath(paths: paths))
 
         actions = makeActions()
@@ -244,7 +233,7 @@ final class AppCoordinator {
 
     // MARK: Lifecycle
 
-    func start() {
+    public func start() {
         // The socket first: if another copy of Breakpoint already answers on it, hand over to that
         // copy and quit before showing anything (§5.1).
         server.onEvent = { [weak self] event in
@@ -269,7 +258,7 @@ final class AppCoordinator {
 
         stateObservation = state.objectWillChange.sink { [weak self] _ in self?.scheduleSync() }
 
-        statusItem?.install()
+        shell.installStatusItem()
 
         monitor.onCallSignalsChange = { [weak self] _ in self?.tick() }
         monitor.onPresenceEvent = { [weak self] event in self?.handlePresenceEvent(event) }
@@ -287,7 +276,7 @@ final class AppCoordinator {
         scheduleTick(interval: 1)
 
         if !settings.hasCompletedOnboarding || options.forceOnboarding {
-            onboarding?.show()
+            shell.showOnboarding()
             recordSurface("onboarding shown")
         } else if options.startTour {
             // `--tour`: the tour at once, as Settings → General → Take the tour would start it.
@@ -297,38 +286,37 @@ final class AppCoordinator {
         settlePendingUpdate()
         publish()
         log.info("Breakpoint \(BreakpointVersion.current, privacy: .public) started")
-        if let statusItem {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak statusItem] in
-                let frame = statusItem?.statusItemFrame.map { "\($0)" }
-                    ?? "none (hidden by macOS: \(statusItem?.visibilityDiagnostics ?? "no item"))"
-                let policy = NSApp.activationPolicy() == .accessory ? "accessory" : "regular"
-                log.info("Status item frame: \(frame, privacy: .public); activation policy: \(policy, privacy: .public)")
+        if shell.hasStatusItem {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                guard let self else { return }
+                let frame = self.shell.statusItemDiagnostics() ?? "none"
+                let presence = self.platform.launchDiagnostics() ?? "-"
+                log.info("Status item: \(frame, privacy: .public); \(presence, privacy: .public)")
             }
         }
         if let seconds = options.quitAfter {
-            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { NSApp.terminate(nil) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in self?.platform.quit() }
         }
     }
 
-    func stop() {
+    public func stop() {
         if tour != nil { endTour(.interrupted(.appQuit), now: currentDate()) }
         tickTimer?.invalidate()
         tickTimer = nil
         server.stop()
         monitor.stop()
-        hotKeys.unregisterAll()
-        watchdog.stop()
+        shell.stop()
         saveEstimator()
         surfaces.forEach { $0.tearDown() }
-        panelStack.dismissAll()
+        shell.dismissAllPopups()
         log.info("Breakpoint stopped")
     }
 
-    func showPopover() {
-        statusItem?.showPopover()
+    public func showPopover() {
+        shell.showPopover()
         recordSurface("popover shown")
         // Headless there is no popover to say it opened (the real one does, through its delegate).
-        if statusItem == nil { popoverVisibilityChanged(true) }
+        if !shell.hasStatusItem { popoverVisibilityChanged(true) }
     }
 
     // MARK: Wiring
@@ -336,39 +324,17 @@ final class AppCoordinator {
     private func makeControllers() {
         if isHeadless {
             #if DEBUG
-            if let harness { surfaces = [harness.recorder] }
+            if let harness { shell = HeadlessShell(surfaces: [harness.recorder]) }
             #endif
         } else {
-            let statusItem = StatusItemController(state: state, actions: actions)
-            statusItem.hotKeys = hotKeys
-            let settingsWindow = SettingsWindowController(state: state, actions: actions)
-            let onboarding = OnboardingWindowController(state: state, actions: actions)
-            let overlay = BreakOverlayController(state: state, actions: actions, focusRestorer: focusRestorer, watchdog: watchdog)
-            overlay.debugStallSeconds = options.debugStallMain
-            self.statusItem = statusItem
-            self.settingsWindow = settingsWindow
-            self.onboarding = onboarding
-            self.overlay = overlay
-            surfaces = [
-                statusItem,
-                NudgePanelController(state: state, actions: actions, stack: panelStack, hotKeys: hotKeys),
-                CountdownChipController(state: state, stack: panelStack),
-                overlay,
-                ResumeCardController(state: state, actions: actions, stack: panelStack, hotKeys: hotKeys),
-                AwayNoteController(state: state, actions: actions, stack: panelStack),
-                ToastController(state: state, actions: actions, stack: panelStack),
-                WindDownCardController(state: state, actions: actions, stack: panelStack),
-                UpdateCardController(state: state, actions: actions, stack: panelStack),
-                TourCoachController(state: state, actions: actions, stack: panelStack, hotKeys: hotKeys),
-                settingsWindow,
-                onboarding,
-            ]
+            var shell = platform.makeShell(state: state, actions: actions, options: options, paths: paths)
             #if DEBUG
             // With windows shown, the recorder only traces (the real controllers own the timers).
-            if let harness, options.debug.trace { surfaces.append(harness.recorder) }
+            if let harness, options.debug.trace { shell = TracingShell(shell, recorder: harness.recorder) }
             #endif
+            self.shell = shell
         }
-        panelStack.onEvicted = { [weak self] id in
+        shell.onPopupEvicted = { [weak self] id in
             guard let self else { return }
             // A pop-up pushed out by a higher-priority one is gone for good (SPEC §3.0).
             if self.nudge?.id == id {
@@ -422,7 +388,7 @@ final class AppCoordinator {
     /// Applications folder), so the Done step and Settings never show a choice that does nothing
     /// (§3.10).
     private func applyLoginItemDefault() {
-        guard !settings.hasCompletedOnboarding, settings.launchAtLogin, LoginItem.availability().defaultsToOff else { return }
+        guard !settings.hasCompletedOnboarding, settings.launchAtLogin, loginItem.availability().defaultsToOff else { return }
         settings.launchAtLogin = false
         saveSettings()
     }
@@ -483,16 +449,8 @@ final class AppCoordinator {
         }
     }
 
-    /// The CLI to copy to `~/.breakpoint/bin`: the bundled one (Contents/Helpers/breakpoint) when
-    /// running from the app bundle, else (a development build in `.build/…`) the `breakpoint`
-    /// built next to the app's executable.
-    var bundledCLI: URL? {
-        let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/breakpoint")
-        if FileManager.default.isExecutableFile(atPath: bundled.path) { return bundled }
-        guard let executable = Bundle.main.executableURL, Bundle.main.bundleURL.pathExtension != "app" else { return nil }
-        let sibling = executable.deletingLastPathComponent().appendingPathComponent("breakpoint")
-        return FileManager.default.isExecutableFile(atPath: sibling.path) ? sibling : nil
-    }
+    /// The CLI to copy to `~/.breakpoint/bin` (the platform knows where the app keeps it).
+    var bundledCLI: URL? { platform.bundledCLI }
 
     var integrationEnvironment: IntegrationEnvironment {
         IntegrationEnvironment(paths: paths, codexHomeOverride: settings.codexHome,
@@ -503,7 +461,16 @@ final class AppCoordinator {
     func refreshIntegrations() {
         integrationsRefreshedAt = Date()
         let environment = integrationEnvironment
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        let apply: @MainActor ([IntegrationID: IntegrationInstallState], [IntegrationID: String]) -> Void = { [weak self] states, problems in
+            guard let self else { return }
+            self.integrationStates = states
+            self.installDiskProblems = problems
+            // Relayed Cursor events (via Claude Code's hooks) are duplicates only while
+            // Breakpoint's own Cursor hooks are in place, in any version (§2.6, §5.4).
+            self.tracker.nativeCursorInstalled = states[.cursor]?.hasBreakpointEntries == true
+            self.publish()
+        }
+        DispatchQueue.global(qos: .utility).async {
             var states: [IntegrationID: IntegrationInstallState] = [:]
             var problems: [IntegrationID: String] = [:]
             for id in IntegrationID.allCases {
@@ -511,16 +478,9 @@ final class AppCoordinator {
                 states[id] = state
                 problems[id] = InstallCheck.problem(for: id, state: state, environment: environment)
             }
+            let found = states, wrong = problems
             DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    self.integrationStates = states
-                    self.installDiskProblems = problems
-                    // Relayed Cursor events (via Claude Code's hooks) are duplicates only while
-                    // Breakpoint's own Cursor hooks are in place, in any version (§2.6, §5.4).
-                    self.tracker.nativeCursorInstalled = states[.cursor]?.hasBreakpointEntries == true
-                    self.publish()
-                }
+                MainActor.assumeIsolated { apply(found, wrong) }
             }
         }
     }

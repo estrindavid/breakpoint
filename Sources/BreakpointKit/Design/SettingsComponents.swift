@@ -1,4 +1,5 @@
 import SwiftUI
+import BreakpointRuntime
 
 /// Settings building blocks (SPEC §3.9). Windows follow the system appearance, so these use
 /// system label colours and native controls; only the accent is Breakpoint's.

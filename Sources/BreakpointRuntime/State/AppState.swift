@@ -1,4 +1,6 @@
+#if canImport(Combine)
 import Combine
+#endif
 import Foundation
 import BreakpointCore
 
@@ -9,6 +11,11 @@ import BreakpointCore
 /// views and snapshots never read the system clock).
 @MainActor
 public final class AppState: ObservableObject {
+    #if !canImport(Combine)
+    /// Fired before every change (Combine's synthesised publisher on Apple platforms).
+    public nonisolated let objectWillChange = ObjectWillChangePublisher()
+    #endif
+
     /// The status item: mark, badge, text, tooltip.
     @Published public var menuBar: MenuBarState
     /// Next break, still time, pause state (popover status block).

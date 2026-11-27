@@ -1,5 +1,6 @@
 import SwiftUI
 import BreakpointCore
+import BreakpointRuntime
 
 // SPEC §2.11, §3.5 update prompt.
 

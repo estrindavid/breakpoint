@@ -1,6 +1,5 @@
 import Foundation
 import BreakpointCore
-import BreakpointKit
 
 // Core state → `AppState` (SPEC §7.2). Every assignment goes through `set` so unchanged
 // values do not re-render views.
@@ -100,7 +99,7 @@ extension AppCoordinator {
         let sessions = tracker.sessionsByUrgency
         let waiting = sessions.first { $0.state == .waiting }
         let working = sessions.first { $0.state == .working }
-        var badge: BrandMark.Badge = waiting != nil ? .needsYou : (working != nil ? .working : .none)
+        var badge: MarkBadge = waiting != nil ? .needsYou : (working != nil ? .working : .none)
         // The tour's sample: a break is due while the sample agent works, then it finishes during
         // the sample break (SPEC §3.12).
         if let step = tour?.step, badge == .none {

@@ -2,6 +2,7 @@ import AppKit
 import CoreGraphics
 import SwiftUI
 import BreakpointCore
+import BreakpointRuntime
 
 /// Plays any break screen or sequence on the real windows with sample data, for reviewing motion
 /// and window behaviour that snapshots cannot show. It is a small stand-in coordinator: it owns its

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import BreakpointCore
+import BreakpointRuntime
 
 /// A non-activating pop-up panel (SPEC §3.0): `.nonactivatingPanel`, level `.statusBar`,
 /// `[.canJoinAllSpaces, .fullScreenAuxiliary]`, transparent, `sharingType = .none`, never key unless

@@ -1,6 +1,5 @@
-import AppKit
+import Foundation
 import BreakpointCore
-import BreakpointKit
 
 // The one-minute tour (SPEC §3.12): a rehearsal of one whole cycle with sample data on the real
 // surfaces. `TourPolicy` (Core) decides where the tour goes; this file shows and removes the
@@ -13,7 +12,7 @@ extension AppCoordinator {
     /// Settings → General → Take the tour (or `--tour`): from the mark, at once.
     func replayTour() {
         guard TourPolicy.canReplay(realBreakShowing: breakSession != nil && !isTourBreak(breakSession)) else { return }
-        settingsWindow?.close()
+        shell.closeSettings()
         startTour(.replay)
     }
 

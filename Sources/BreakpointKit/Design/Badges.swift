@@ -1,5 +1,6 @@
 import SwiftUI
 import BreakpointCore
+import BreakpointRuntime
 
 extension BreakKind {
     /// SF Symbol for the kind badge (SPEC §3.1).

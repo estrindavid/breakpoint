@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import BreakpointCore
+import BreakpointRuntime
 
 // The popover's commands, menus and keyboard
 // model, shared by `StatusItemController` (key handling) and `PopoverView` (clicks), so a click

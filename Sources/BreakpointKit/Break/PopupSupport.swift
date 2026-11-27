@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import BreakpointCore
+import BreakpointRuntime
 
 // Shared plumbing for every pop-up (nudge, countdown chip, resume
 // card, away note, toasts, wind-down): presence and motion (SPEC §4.6), hover tracking that works

@@ -1,18 +1,11 @@
 import SwiftUI
 import BreakpointCore
+import BreakpointRuntime
 
 // SPEC §3.3 (shared skeleton) and §3.4 (per kind).
 
-/// A control on the overlay, for the keyboard focus model (Tab and arrows move between them,
-/// Space activates, Return triggers the primary).
-public enum OverlayControl: Hashable, Sendable, CaseIterable {
-    /// Skip, relabelled Done after 80%.
-    case skip
-    /// "1 more minute".
-    case extend
-    /// The mint primary: I'm back / Welcome back / Back to work.
-    case primary
-}
+// `OverlayControl`, a control on the overlay for the keyboard focus model (Tab and arrows move
+// between them, Space activates, Return triggers the primary), is declared in BreakpointRuntime.
 
 /// Everything about an overlay frame that is not in `ActiveBreakState`: where the entrance or exit
 /// is, keyboard focus, the Esc pulse, the safe area, and a sub-second clock for the Skip guard and
@@ -43,21 +36,17 @@ public struct OverlayPresentation: Equatable, Sendable {
 
     /// The controls the break shows, in order (Skip, kind controls, primary rightmost).
     public static func controls(for activeBreak: ActiveBreakState) -> [OverlayControl] {
-        var controls: [OverlayControl] = [.skip]
-        if activeBreak.canExtend && !activeBreak.needsYou { controls.append(.extend) }
-        if hasPrimary(activeBreak) { controls.append(.primary) }
-        return controls
+        OverlayControls.controls(for: activeBreak)
     }
 
     /// A mint primary is shown: Back to work when an agent needs you, I'm back on `walk`.
     public static func hasPrimary(_ activeBreak: ActiveBreakState) -> Bool {
-        activeBreak.needsYou || activeBreak.kind == .walk
+        OverlayControls.hasPrimary(activeBreak)
     }
 
     /// The primary's label.
     public static func primaryTitle(_ activeBreak: ActiveBreakState) -> String {
-        if activeBreak.needsYou { return "Back to work" }
-        return activeBreak.welcomeBack ? "Welcome back" : "I'm back"
+        OverlayControls.primaryTitle(activeBreak)
     }
 }
 

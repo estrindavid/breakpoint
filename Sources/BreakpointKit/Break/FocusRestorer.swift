@@ -1,5 +1,6 @@
 import AppKit
 import BreakpointCore
+import BreakpointRuntime
 
 /// Restores the previously frontmost app after a break (SPEC §7.2).
 ///
