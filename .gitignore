@@ -16,3 +16,4 @@ docs/readme/src/snap
 
 # A Windows process started without SystemDrive in its environment makes this folder.
 %SystemDrive%/
+/.build-*/
