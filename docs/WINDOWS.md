@@ -53,7 +53,7 @@ same code on both; the unit tests (613) and the end-to-end flows (`scripts/e2e.s
   `PopoverModel`, above the taskbar at the icon, 12 DIPs from the taskbar and the screen's edge. It
   closes through the same `PopoverPolicy` as the Mac popover (a click elsewhere, Esc, a display
   change). Right click opens the menu; "Why not now?" is a greyed line at its top, since Windows has
-  no Option-click.
+  no Option-click; its first-use hint says "Right-click the mark to see why no break yet."
 
 ## Pop-ups and the break overlay (SPEC §3.0–3.6)
 

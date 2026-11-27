@@ -132,7 +132,10 @@ public enum HintCopy {
     }
 
     /// The first time the popover opens.
-    public static let popover = "Option-click the mark to see why no break yet."
+    /// Windows has no Option-click: "Why not now?" is the first line of the tray icon's menu.
+    public static let popover = BreakpointPlatform.isWindows
+        ? "Right-click the mark to see why no break yet."
+        : "Option-click the mark to see why no break yet."
     /// The first call pause, under "Breaks paused: microphone is on".
     public static let callPause = "Breaks come back by themselves after the call."
 

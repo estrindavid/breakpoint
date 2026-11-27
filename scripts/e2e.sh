@@ -38,7 +38,12 @@ if [[ $PLATFORM == windows ]]; then
   sed_i() { sed -i "$@"; }
   # Feeds made here are for this Windows build (scripts/make-update-feed.sh).
   export MINIMUM_SYSTEM_VERSION=10.0
+  # How the hints name the dismiss shortcut and "Why not now?" there (HotKeyCombo.platformDisplay).
+  DISMISS_KEY="Ctrl+Alt+Win+."
+  POPOVER_HINT="Right-click the mark to see why no break yet."
 else
+  DISMISS_KEY="⌃⌥⌘."
+  POPOVER_HINT="Option-click the mark to see why no break yet."
   DATA_REL="Library/Application Support/Breakpoint"
   APPNAME="Breakpoint.app"
   EXE=""
@@ -1755,11 +1760,11 @@ flow_hints_after_tour() {
   dbg advance 4
   dbg action skip
   expect "a needs-you card" "$(q '.cards[0].text')" "Claude needs you"
-  expect "carries its hint" "$(q '.cards[0].hint')" "It stays until you press ⌃⌥⌘. or click it."
+  expect "carries its hint" "$(q '.cards[0].hint')" "It stays until you press $DISMISS_KEY or click it."
   dbg action dismiss all
   # …Option-click on the mark…
   dbg action activate
-  expect "the popover carries its hint" "$(q .popover.hint)" "Option-click the mark to see why no break yet."
+  expect "the popover carries its hint" "$(q .popover.hint)" "$POPOVER_HINT"
   dbg action close-popover
   dbg action activate
   expect "once" "$(q .popover.hint)" "null"
@@ -1884,7 +1889,7 @@ flow_hints_existing_user() {
   # Settings → General → Show hints: asking for them.
   dbg settings '{"showHints": true}'
   dbg action activate
-  expect "turned on, the next surface carries its hint" "$(q .popover.hint)" "Option-click the mark to see why no break yet."
+  expect "turned on, the next surface carries its hint" "$(q .popover.hint)" "$POPOVER_HINT"
   dbg action close-popover
   dbg tour start
   expect "Take the tour still works" "$(q .tour.step)" "mark"
