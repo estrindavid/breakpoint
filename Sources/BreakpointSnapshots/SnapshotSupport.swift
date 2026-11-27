@@ -86,6 +86,9 @@ struct Snapshot {
     var renderer: SnapshotRenderer
     /// Padding around the view on its backdrop (ignored for `.none`).
     var padding: CGFloat
+    /// `.window` renderer only: points to scroll the widest scroll view down before capture (as if
+    /// scrolled with the wheel; capped at the end of its content). `nil` leaves it at the top.
+    var scrollOffset: CGFloat?
     var content: @MainActor () -> AnyView
 
     init(_ name: String,
@@ -94,6 +97,7 @@ struct Snapshot {
          variants: [SnapshotVariant] = [.standard],
          renderer: SnapshotRenderer = .imageRenderer,
          padding: CGFloat = 40,
+         scrollOffset: CGFloat? = nil,
          @ViewBuilder content: @escaping @MainActor () -> some View) {
         self.name = name
         self.size = size
@@ -101,6 +105,7 @@ struct Snapshot {
         self.variants = variants
         self.renderer = renderer
         self.padding = padding
+        self.scrollOffset = scrollOffset
         self.content = { AnyView(content()) }
     }
 }
@@ -191,13 +196,14 @@ enum SnapshotRenderingEngine {
                 renderer.scale = scale
                 result = renderer.cgImage
             case .window:
-                result = windowImage(of: view, appearance: appearance, size: snapshot.size)
+                result = windowImage(of: view, appearance: appearance, size: snapshot.size, scrollOffset: snapshot.scrollOffset)
             }
         }
         return result
     }
 
-    private static func windowImage(of view: AnyView, appearance: NSAppearance, size: CGSize?) -> CGImage? {
+    private static func windowImage(of view: AnyView, appearance: NSAppearance, size: CGSize?,
+                                    scrollOffset: CGFloat?) -> CGImage? {
         let hosting = NSHostingView(rootView: view)
         hosting.appearance = appearance
         let fitting = size ?? hosting.fittingSize
@@ -212,10 +218,31 @@ enum SnapshotRenderingEngine {
         // Let SwiftUI settle (fonts, layout passes) before capturing.
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         hosting.layoutSubtreeIfNeeded()
+        if let scrollOffset {
+            scroll(in: hosting, by: scrollOffset)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            hosting.layoutSubtreeIfNeeded()
+        }
         guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return nil }
         hosting.cacheDisplay(in: hosting.bounds, to: rep)
         window.contentView = nil
         return rep.cgImage
+    }
+
+    /// Scrolls the widest scroll view that is not a list (a settings pane, not its sidebar) down by
+    /// `offset` points from its top, capped at the end of its content.
+    private static func scroll(in root: NSView, by offset: CGFloat) {
+        func scrollViews(in view: NSView) -> [NSScrollView] {
+            ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrollViews)
+        }
+        func holdsTable(_ view: NSView) -> Bool { view is NSTableView || view.subviews.contains(where: holdsTable) }
+        guard let scrollView = scrollViews(in: root).filter({ !holdsTable($0) }).max(by: { $0.frame.width < $1.frame.width }),
+              let document = scrollView.documentView else { return }
+        let clip = scrollView.contentView
+        let top = -scrollView.contentInsets.top
+        let end = max(top, document.frame.height - clip.bounds.height)
+        clip.scroll(to: CGPoint(x: clip.bounds.origin.x, y: min(top + offset, end)))
+        scrollView.reflectScrolledClipView(clip)
     }
 
     static func writePNG(_ image: CGImage, to url: URL) throws {
