@@ -155,7 +155,13 @@ public enum UpdateFeed {
     /// A feed larger than this is not read.
     public static let maximumSize = 64 * 1024
     /// An archive larger than this is not downloaded.
+    #if os(Windows)
+    /// Windows: the two executables each carry the Swift runtime and ICU's data (linked in, so
+    /// the CLI copy the hooks call needs nothing else), about 48 MB zipped.
+    public static let maximumArchiveSize = 96 * 1024 * 1024
+    #else
     public static let maximumArchiveSize = 64 * 1024 * 1024
+    #endif
 
     public enum ParseError: Error, Equatable, Sendable {
         /// Not a JSON object, or too large.

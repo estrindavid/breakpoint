@@ -31,7 +31,17 @@ let status: Int32 = MainActor.assumeIsolated {
         print(report)
         return 0
     }
-    if options.demo != nil {
+    if let index = CommandLine.arguments.firstIndex(of: "--write-icon"), index + 1 < CommandLine.arguments.count {
+        // Packaging (scripts/windows/package.ps1): the icon file, drawn by the same code as the app's.
+        _ = bp_graphics_start()
+        do {
+            try AppIcon.writeICO(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
+            return 0
+        } catch {
+            return 1
+        }
+    }
+        if options.demo != nil {
         Console.attachToParent()
         print("The break demos (--demo) are only in the macOS app; scripts/windows/run.ps1 shows the real screens.")
         return 2

@@ -54,7 +54,10 @@ public enum PlatformLogSink {
     nonisolated(unsafe) public static var extra: ((String) -> Void)?
 
     static func write(_ line: String) {
-        FileHandle.standardError.write(Data(line.utf8))
+        // C stdio, not FileHandle: a GUI process started without handles (from Explorer, or the
+        // update helper) has no standard error, which FileHandle traps on and fputs ignores.
+        fputs(line, stderr)
+        fflush(stderr)
         extra?(line)
     }
 }

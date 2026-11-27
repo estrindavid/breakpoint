@@ -35,7 +35,9 @@ struct Devices {
     bool lost = false;
 };
 
-Devices g;
+// Process-lifetime on purpose: releasing Direct3D and DirectComposition from a static destructor
+// while the process exits can deadlock on the loader lock (the app would never finish quitting).
+Devices &g = *new Devices();
 
 const float kPi = 3.14159265358979f;
 

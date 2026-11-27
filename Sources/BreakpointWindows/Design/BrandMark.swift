@@ -79,21 +79,74 @@ public enum AppIcon {
 
     static func make(size: Int) -> HICON? {
         let drawer: BPIconDrawer = { surface, _ in
-            MainActor.assumeIsolated {
-                let side = Float(AppIcon.drawingSize)
-                let canvas = Canvas(surface: surface, size: SizeF(width: side, height: side), scale: 1)
-                let rect = RectF(x: 0, y: 0, width: side, height: side)
-                canvas.fill(rect.insetBy(side * 0.04, side * 0.04), radius: side * 0.22, Theme.Palette.solidOverlay)
-                canvas.gradient(rect.insetBy(side * 0.04, side * 0.04), radius: side * 0.22,
-                                from: Theme.Palette.indigo.opacity(0.22), to: Theme.Palette.mint.opacity(0.08), angle: 60)
-                BrandMark.drawMark(in: rect.insetBy(side * 0.16, side * 0.16), on: canvas, tag: Theme.Palette.mint,
-                                   eyes: Theme.Palette.solidOverlay)
-            }
+            MainActor.assumeIsolated { AppIcon.draw(on: surface) }
         }
         drawingSize = size
         return bp_make_icon(Int32(size), drawer, nil).map { HICON($0.assumingMemoryBound(to: HICON__.self)) }
     }
 
+    /// The icon at `drawingSize`: the mark in mint on a dark rounded square with a faint brand glow.
+    static func draw(on surface: OpaquePointer?) {
+        let side = Float(drawingSize)
+        let canvas = Canvas(surface: surface, size: SizeF(width: side, height: side), scale: 1)
+        let tile = RectF(x: 0, y: 0, width: side, height: side).insetBy(side * 0.04, side * 0.04)
+        canvas.fill(tile, radius: side * 0.22, Theme.Palette.solidOverlay)
+        canvas.gradient(tile, radius: side * 0.22, from: Theme.Palette.indigo.opacity(0.22), to: Theme.Palette.mint.opacity(0.08), angle: 60)
+        BrandMark.drawMark(in: tile.insetBy(side * 0.12, side * 0.12), on: canvas, tag: Theme.Palette.mint, eyes: Theme.Palette.solidOverlay)
+    }
+
     /// The size of the icon being drawn (the C callback carries no context).
     nonisolated(unsafe) static var drawingSize = 32
+}
+
+extension AppIcon {
+    /// Writes the icon as a .ico with the sizes Windows asks for (Start menu, taskbar, Explorer),
+    /// each drawn at its own size from the same code as the window icon.
+    public static func writeICO(to url: URL) throws {
+        let sizes = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256]
+        var images: [[UInt8]] = []
+        for size in sizes {
+            drawingSize = size
+            var pixels = [UInt8](repeating: 0, count: size * size * 4)
+            let drawer: BPIconDrawer = { surface, _ in
+                MainActor.assumeIsolated { AppIcon.draw(on: surface) }
+            }
+            guard bp_render_pixels(Int32(size), Int32(size), 1, drawer, nil, &pixels) == 0 else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            images.append(dib(size: size, premultiplied: pixels))
+        }
+        var data = Data()
+        func le16(_ v: Int) { withUnsafeBytes(of: UInt16(v).littleEndian) { data.append(contentsOf: $0) } }
+        func le32(_ v: Int) { withUnsafeBytes(of: UInt32(v).littleEndian) { data.append(contentsOf: $0) } }
+        le16(0); le16(1); le16(sizes.count)
+        var offset = 6 + 16 * sizes.count
+        for (size, image) in zip(sizes, images) {
+            data.append(UInt8(size >= 256 ? 0 : size)); data.append(UInt8(size >= 256 ? 0 : size))
+            data.append(0); data.append(0); le16(1); le16(32); le32(image.count); le32(offset)
+            offset += image.count
+        }
+        for image in images { data.append(contentsOf: image) }
+        try data.write(to: url)
+    }
+
+    /// One icon image: a BITMAPINFOHEADER (double height), bottom-up straight-alpha BGRA, and an
+    /// all-clear AND mask.
+    private static func dib(size: Int, premultiplied pixels: [UInt8]) -> [UInt8] {
+        var out = [UInt8]()
+        func le16(_ v: Int) { withUnsafeBytes(of: UInt16(v).littleEndian) { out.append(contentsOf: $0) } }
+        func le32(_ v: Int) { withUnsafeBytes(of: UInt32(v).littleEndian) { out.append(contentsOf: $0) } }
+        le32(40); le32(size); le32(size * 2); le16(1); le16(32); le32(0); le32(size * size * 4); le32(0); le32(0); le32(0); le32(0)
+        for row in (0..<size).reversed() {
+            for column in 0..<size {
+                let i = (row * size + column) * 4
+                let a = pixels[i + 3]
+                func straight(_ c: UInt8) -> UInt8 { a == 0 ? 0 : UInt8(min(255, Int(c) * 255 / Int(a))) }
+                out.append(straight(pixels[i])); out.append(straight(pixels[i + 1])); out.append(straight(pixels[i + 2])); out.append(a)
+            }
+        }
+        let maskRow = ((size + 31) / 32) * 4
+        out.append(contentsOf: [UInt8](repeating: 0, count: maskRow * size))
+        return out
+    }
 }
