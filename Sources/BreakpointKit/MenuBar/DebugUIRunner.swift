@@ -92,6 +92,13 @@ enum DebugUISelfTest {
         item.togglePopover()
         await pause(0.8)
         check(!item.isPopoverShown, "toggle closes it")
+        // It hangs still under the mark, and leaving the Space closes it (SPEC §3.8).
+        item.showPopover()
+        await pause(0.7)
+        log("popover window \(item.popoverWindow.map { "\($0.frame)" } ?? "none") under the mark at \(item.statusItemFrame.map { "\($0)" } ?? "hidden")")
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.activeSpaceDidChangeNotification, object: NSWorkspace.shared)
+        await pause(0.8)
+        check(!item.isPopoverShown, "a Space change closes it")
 
         // Settings.
         guard let settings = SettingsWindowController.current else { return check(false, "settings controller exists") }

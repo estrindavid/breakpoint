@@ -858,6 +858,18 @@ radius 14. Order top to bottom — status, then the likely action, then detail:
 
 A global shortcut to toggle the popover can be set (off by default).
 
+**Closing.** The popover goes as soon as you leave it, like any menu-bar extra: a click anywhere
+outside it (another app, the desktop, the menu bar, another Breakpoint window), Esc, another app
+becoming active, a Space or display change (`PopoverPolicy`, Core). It hangs from where the mark
+was when it opened and never moves while open; a content change only changes its height, downward.
+When the menu bar it hangs from slides away (a full-screen Space, or a menu bar that hides itself),
+it closes, unless the pointer is on it, it carries its first-use hint, or the tour is naming its
+parts (§3.12): those keep it where it is until one of the above. A Space, display or app change in
+its first 0.5 s (`Timing.popoverSettle`) is a side effect of opening it and does not close it.
+Clicking the mark still toggles it. Nothing here needs a permission: other apps' clicks come from
+a global monitor for mouse-down events, which macOS gives without one (only key events need
+Accessibility access).
+
 ### 3.9 Settings window
 
 - Sidebar window, default 860 × 770 pt, minimum 720 × 560, sidebar 200 pt, follows system

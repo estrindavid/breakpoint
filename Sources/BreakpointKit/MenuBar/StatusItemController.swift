@@ -20,6 +20,12 @@ import os
 ///   template-image frames; never under Reduce Motion, or while the screen is locked or asleep.
 /// - `showPopover()` / `togglePopover()` / `closePopover()` for the coordinator (onboarding opens
 ///   it once; the optional global shortcut toggles it).
+/// - The popover hangs from a fixed 1 pt anchor placed under the mark when it opens, so it never
+///   moves while open (the mark itself moves with a menu bar that slides away). While it is open,
+///   whatever may close it (a click outside it, Esc, another app, a Space or display change, the
+///   menu bar sliding away) goes to `actions.popoverMayClose`, and the coordinator decides (§3.8).
+///   AppKit's `.transient` behaviour stays on, but it is not relied on: its closing is
+///   unspecified, and it fails for an accessory app that `activate()` did not make active.
 /// - `statusItemFrame` gives the item's screen frame (onboarding's arrow points at it); `nil` when
 ///   macOS is hiding the item (a full menu bar, or under the notch).
 /// - `hotKeys`: set it to the app's `HotKeyCenter` to enable the optional popover shortcut
@@ -37,6 +43,15 @@ public final class StatusItemController: NSObject, SurfaceController, NSPopoverD
     private var renderedPulseStep: Int?
     private var pulseTimer: Timer?
     private var keyMonitor: Any?
+    /// While the popover is open: what may close it (SPEC §3.8).
+    private var dismissMonitors: [Any] = []
+    private var dismissObservers: [(NotificationCenter, NSObjectProtocol)] = []
+    private var anchorTimer: Timer?
+    /// The mark's screen frame when the popover opened (nil: it hung from the display's top right),
+    /// the screens then, and the last menu-bar state reported (gone, pointer on the popover).
+    private var openedUnder: CGRect?
+    private var screensAtOpen: [CGRect] = []
+    private var reportedAnchor: (gone: Bool, pointerOn: Bool)?
     private var popoverClosedAt: Date?
     /// The app that was frontmost before the popover activated Breakpoint, to hand the keyboard
     /// back to when the popover closes by Esc, the shortcut or one of its commands.
@@ -174,27 +189,32 @@ public final class StatusItemController: NSObject, SurfaceController, NSPopoverD
         let front = NSWorkspace.shared.frontmostApplication
         appBeforePopover = front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : front
         NSApp.activate()
-        if let window = button.window,
-           Self.isVisible(window.convertToScreen(button.convert(button.bounds, to: nil)), window: window) {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            button.highlight(true)
-        } else {
-            // macOS is hiding the item (full menu bar or notch): hang the popover from the top
-            // right of the active display instead of an off-screen anchor.
-            let anchor = fallbackAnchor()
-            popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
-        }
+        // Never the button itself: NSPopover follows its anchor, and the mark moves (and leaves
+        // the screen) with a menu bar that slides away. A fixed anchor where the mark is now keeps
+        // the popover still; content changes only change its height, downward.
+        openedUnder = statusItemFrame
+        let anchor = fixedAnchor(under: openedUnder)
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+        if openedUnder != nil { button.highlight(true) }
         popover.contentViewController?.view.window?.makeKey()
         installKeyMonitor()
+        startWatchingForDismissal()
     }
 
     private var anchorPanel: NSPanel?
 
-    /// A 1 pt transparent panel just under the menu bar, 120 pt from the right edge.
-    private func fallbackAnchor() -> NSView {
-        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main ?? NSScreen.screens[0]
-        let top = min(screen.visibleFrame.maxY, screen.frame.maxY - screen.safeAreaInsets.top)
-        let frame = CGRect(x: screen.frame.maxX - 120, y: top - 2, width: 1, height: 1)
+    /// A 1 pt transparent panel at the bottom of the mark (`itemFrame`), or, when macOS is hiding
+    /// the item (a full menu bar, or under the notch), just under the menu bar 120 pt from the
+    /// right edge of the display with the pointer. It ignores the mouse and is on every Space.
+    private func fixedAnchor(under itemFrame: CGRect?) -> NSView {
+        let frame: CGRect
+        if let itemFrame {
+            frame = CGRect(x: itemFrame.minX, y: itemFrame.minY, width: max(1, itemFrame.width), height: 1)
+        } else {
+            let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main ?? NSScreen.screens[0]
+            let top = min(screen.visibleFrame.maxY, screen.frame.maxY - screen.safeAreaInsets.top)
+            frame = CGRect(x: screen.frame.maxX - 120, y: top - 2, width: 1, height: 1)
+        }
         let panel = anchorPanel ?? {
             let panel = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             panel.isOpaque = false
@@ -207,8 +227,118 @@ public final class StatusItemController: NSObject, SurfaceController, NSPopoverD
         }()
         anchorPanel = panel
         panel.setFrame(frame, display: false)
+        panel.contentView?.frame = CGRect(origin: .zero, size: frame.size)
         panel.orderFrontRegardless()
         return panel.contentView!
+    }
+
+    // MARK: Closing (SPEC §3.8)
+
+    /// Watches, while the popover is open, for everything that may close it. Nothing here needs a
+    /// permission: a global monitor sees other apps' mouse clicks (only key events need
+    /// Accessibility access), and the rest are workspace and application notifications.
+    private func startWatchingForDismissal() {
+        stopWatchingForDismissal()
+        screensAtOpen = NSScreen.screens.map(\.frame)
+        reportedAnchor = nil
+        let clicks: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        // Clicks in other apps, on the desktop and in the menu bar (other items, or the bar itself).
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: clicks, handler: { [weak self] event in
+            nonisolated(unsafe) let event = event
+            MainActor.assumeIsolated { self?.clicked(event) }
+        }) {
+            dismissMonitors.append(global)
+        }
+        // Clicks in Breakpoint's other windows (a pop-up card, Settings).
+        if let local = NSEvent.addLocalMonitorForEvents(matching: clicks, handler: { [weak self] event in
+            nonisolated(unsafe) let event = event
+            MainActor.assumeIsolated { self?.clicked(event) }
+            return event
+        }) {
+            dismissMonitors.append(local)
+        }
+        let workspace = NSWorkspace.shared.notificationCenter
+        let own = ProcessInfo.processInfo.processIdentifier
+        observe(workspace, NSWorkspace.didActivateApplicationNotification) { controller, note in
+            let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            if app?.processIdentifier != own { controller.report(.otherAppActive) }
+        }
+        observe(workspace, NSWorkspace.activeSpaceDidChangeNotification) { controller, _ in
+            controller.report(.spaceChanged)
+        }
+        observe(NotificationCenter.default, NSApplication.didChangeScreenParametersNotification) { controller, _ in
+            // Only a real change of displays; not the Dock or the menu bar changing the visible area.
+            let screens = NSScreen.screens.map(\.frame)
+            guard screens != controller.screensAtOpen else { return }
+            controller.screensAtOpen = screens
+            controller.report(.displayChanged)
+        }
+        let timer = Timer(timeInterval: Timing.popoverAnchorCheck, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkAnchor() }
+        }
+        timer.tolerance = Timing.popoverAnchorCheck / 5
+        RunLoop.main.add(timer, forMode: .common)
+        anchorTimer = timer
+    }
+
+    private func stopWatchingForDismissal() {
+        dismissMonitors.forEach(NSEvent.removeMonitor)
+        dismissMonitors.removeAll()
+        for (center, token) in dismissObservers { center.removeObserver(token) }
+        dismissObservers.removeAll()
+        anchorTimer?.invalidate()
+        anchorTimer = nil
+        reportedAnchor = nil
+    }
+
+    private func observe(_ center: NotificationCenter, _ name: Notification.Name,
+                         _ handle: @escaping @MainActor (StatusItemController, Notification) -> Void) {
+        let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+            nonisolated(unsafe) let note = note
+            MainActor.assumeIsolated {
+                guard let self, self.popover.isShown else { return }
+                handle(self, note)
+            }
+        }
+        dismissObservers.append((center, token))
+    }
+
+    private var popoverFrame: CGRect? { popoverWindow?.frame }
+
+    private var pointerOnPopover: Bool {
+        popoverFrame?.contains(NSEvent.mouseLocation) ?? false
+    }
+
+    private func report(_ cause: PopoverCloseCause) {
+        guard popover.isShown else { return }
+        actions.popoverMayClose(cause, pointerOnPopover)
+    }
+
+    /// A mouse-down anywhere. Inside the popover (or its menus) it is the person using it; on the
+    /// mark, the mark's own action toggles the popover.
+    private func clicked(_ event: NSEvent) {
+        guard popover.isShown else { return }
+        if let window = event.window {
+            if window === popoverWindow || window === statusItem?.button?.window { return }
+            // A menu opened from the popover runs its own loop; its windows never reach here.
+        }
+        let point = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? NSEvent.mouseLocation
+        if let frame = popoverFrame, frame.contains(point) { return }
+        if let mark = statusItemFrame, mark.insetBy(dx: -2, dy: -2).contains(point) { return }
+        actions.popoverMayClose(.clickOutside, false)
+    }
+
+    /// The menu bar the popover hangs from slid away (a full-screen Space, or a menu bar that
+    /// hides itself): the mark left the spot it was in when the popover opened. Reported when that,
+    /// or the pointer's being on the popover, changes.
+    private func checkAnchor() {
+        guard popover.isShown, let opened = openedUnder else { return }
+        let now = statusItemFrame
+        let gone = now.map { abs($0.minY - opened.minY) > 2 } ?? true
+        let pointerOn = pointerOnPopover
+        defer { reportedAnchor = (gone, pointerOn) }
+        guard gone, reportedAnchor.map({ !$0.gone || $0.pointerOn != pointerOn }) ?? true else { return }
+        actions.popoverMayClose(.menuBarHidden, pointerOn)
     }
 
     public func closePopover() {
@@ -249,6 +379,7 @@ public final class StatusItemController: NSObject, SurfaceController, NSPopoverD
         pulseTimer?.invalidate()
         pulseTimer = nil
         removeKeyMonitor()
+        stopWatchingForDismissal()
         popover.close()
         anchorPanel?.close()
         if let registeredHotKey { hotKeys?.unregister(registeredHotKey.token) }
@@ -539,7 +670,7 @@ public final class StatusItemController: NSObject, SurfaceController, NSPopoverD
              76 where state.tour?.step == .popover && commands.focus == nil:
             actions.tour(.next); return true
         case 36, 76, 49: commands.activateFocused(); return true                 // Return, Enter, Space
-        case 53: closePopover(); return true                                     // Esc
+        case 53: actions.popoverMayClose(.escape, true); return true              // Esc
         default: return false
         }
     }
@@ -551,12 +682,20 @@ public final class StatusItemController: NSObject, SurfaceController, NSPopoverD
         actions.popoverVisibilityChanged(true)
     }
 
+    public func popoverWillClose(_ notification: Notification) {
+        // At the start of the close, not its end: a click on the mark that AppKit's transient
+        // behaviour turns into a close must not reopen it while the close animates.
+        popoverClosedAt = Date()
+    }
+
     public func popoverDidClose(_ notification: Notification) {
         popoverClosedAt = Date()
         // Its hint goes; during the tour's look at it, the tour moves on to its last card (§3.12).
         actions.popoverVisibilityChanged(false)
         commands.focus = nil
         removeKeyMonitor()
+        stopWatchingForDismissal()
+        openedUnder = nil
         statusItem?.button?.highlight(false)
         anchorPanel?.orderOut(nil)
         // Opening the popover activated Breakpoint. Closed by a click elsewhere, the clicked app

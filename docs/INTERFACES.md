@@ -78,6 +78,7 @@ ActivityMonitor ─▶ InputSample / CallSignals / PresenceEvent ───▶│
 | `LoginItemAvailability.evaluate(bundlePath:isAppBundle:environment:)` (pure: a login item only from an Applications folder; `allowsRegistering`, `allowsUnregistering`, `defaultsToOff`) | Settings/LoginItemAvailability.swift | `LoginItem` (Kit), App start (the first launch's default) |
 | `BuiltInRoutines`, `BreakCopyLibrary`, `Copy` (the content) | Routines/ | every screen |
 | `TourPolicy.start / apply / status(during:) / status(after:) / offersAfterOnboarding / opensPopoverAfter`, sample data (`sampleAgent`, `sampleResume`, …); `TourCopy` (coach lines) | Engine/TourPolicy.swift, Routines/TourCopy.swift | App (`AppCoordinator+Tour.swift`), tour views |
+| `PopoverPolicy.closes(for:context:)`, `PopoverPolicy.Context`, `PopoverCloseCause` (what closes the popover, SPEC §3.8) | Engine/PopoverPolicy.swift | App (`AppCoordinator+Hints.swift`), debug state |
 | `HintPolicy.shows / markingShown / markingTaught / taught(leaving:for:) / nudgeLesson / resumeLesson / pending / showsCallPauseToast`, `HintPolicy.Context`; `HintCopy` (the lines) | Engine/HintPolicy.swift, Routines/TourCopy.swift | App (`AppCoordinator+Hints.swift`), debug state |
 | `RotationState`, `RoutineRotation`, `CopyRotation` (per-kind and named bags), `RoutineReplay` (`rotation.json`, "1 more minute"), `TempoPacing` (the `move` pace ring), closing lines and walk ideas (`BreakEndingCopy.swift`) | Routines/ | coordinator (`AppCoordinator+Rotation.swift`) |
 | `ActivityMonitoring` / `ActivityMonitor` (`diagnosticReport()`), `ActivityDiagnostics.report`, `MicrophoneUse` | Kit Services/ActivityMonitor.swift, Tracking/MicrophoneUse.swift | App (`--signals`, `signals` command → `breakpoint doctor`) |
@@ -140,7 +141,7 @@ the coordinator with `(state:actions:…)`.
 
 | Interface | File | Reads from AppState | Calls in AppActions |
 |---|---|---|---|
-| `StatusItemController` (`install`, `showPopover`, `togglePopover`, `closePopover`, `statusItemFrame`) | MenuBar/StatusItemController.swift | `menuBar`, `tour` | `startBreak`, `pause`, `openSettings`, `quit`, `popoverVisibilityChanged` (opened / closed, however; the coordinator moves the tour on when it closes), `tour(.next)` (Return during the tour) |
+| `StatusItemController` (`install`, `showPopover`, `togglePopover`, `closePopover`, `statusItemFrame`) | MenuBar/StatusItemController.swift | `menuBar`, `tour` | `startBreak`, `pause`, `openSettings`, `quit`, `popoverVisibilityChanged` (opened / closed, however; the coordinator moves the tour on when it closes), `popoverMayClose` (a click outside, Esc, another app, a Space or display change, the menu bar sliding away), `tour(.next)` (Return during the tour) |
 | `PopoverView` | MenuBar/PopoverView.swift | `status`, `lastDecision`, `sessions`, `commands`, `totals`, `now`, `tour`, `popoverHint` | `startBreak`, `pause`, `resume`, `undoLastDecision`, `openSettings`, `quit` |
 | `AppIconView` | MenuBar/AppIconView.swift | — | rendered by `BreakpointSnapshots --app-icon` |
 | `SettingsWindowController` (`show(pane:)`), `SettingsPane`, `SettingsSelection`, `SettingsRootView`, `SettingsPaneView` | Settings/SettingsWindowController.swift, SettingsRootView.swift | `settings`, `integrations` | `updateSettings`, `install`, `uninstall`, `previewNudge`, `previewBreak`, `previewSound`, `exportHistory`, `deleteAllData` |
@@ -169,6 +170,7 @@ the coordinator with `(state:actions:…)`.
 | `completeOnboarding()` | onboarding finished: mark done, login item, then the tour's offer (first time) or the popover once |
 | `replayTour()`, `tour(TourInput)` | Settings → General → Take the tour; Next and Skip tour during the tour (SPEC §3.12) |
 | `popoverVisibilityChanged(Bool)` | the popover opened or closed: its first-use hint, and the tour's popover step moving on |
+| `popoverMayClose(PopoverCloseCause, Bool)` | something that may close the open popover happened (the Bool: the pointer is on it); the coordinator asks `PopoverPolicy` and closes it |
 | `checkForUpdates()`, `installUpdate()`, `openUpdate()` | Settings → About Check now; Update (download, verify, swap, reopen) and the download page, on the prompt and in About (SPEC §2.11). Later on the prompt is `dismissCard` |
 
 ## Updates (SPEC §2.11)

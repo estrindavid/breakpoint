@@ -104,6 +104,10 @@ final class DebugHarness {
                                                 Skip tour, or close the popover. Start / Not now on its sample
                                                 nudge are `action accept|decline`; its sample break ends with
                                                 `action skip` or its timer; `action dismiss resume` clicks its card
+    breakpoint debug popover CAUSE [pointer-on] what the status item reports while the popover is open
+                                                (SPEC §3.8): click-outside, esc, other-app, space, display or
+                                                menu-bar-hidden; pointer-on: the pointer is on the popover.
+                                                `debug state` shows .popover.open and .popover.closedBy
     """
 
     // MARK: Commands
@@ -225,6 +229,19 @@ final class DebugHarness {
             case "popover-closed": coordinator.actions.popoverVisibilityChanged(false)
             default: return "error: tour start|next|skip|popover-closed"
             }
+            coordinator.syncSurfacesNow()
+            return "ok"
+        case "popover":
+            // What the real status item reports when something may close the popover (SPEC §3.8).
+            let causes: [String: PopoverCloseCause] = [
+                "click-outside": .clickOutside, "esc": .escape, "other-app": .otherAppActive,
+                "space": .spaceChanged, "display": .displayChanged, "menu-bar-hidden": .menuBarHidden,
+            ]
+            guard let cause = rest.first.flatMap({ causes[$0] }),
+                  rest.count == 1 || (rest.count == 2 && rest[1] == "pointer-on") else {
+                return "error: popover \(causes.keys.sorted().joined(separator: "|")) [pointer-on]"
+            }
+            coordinator.actions.popoverMayClose(cause, rest.count == 2)
             coordinator.syncSurfacesNow()
             return "ok"
         case "action":
@@ -547,7 +564,8 @@ final class DebugHarness {
                               "tourStatus": c.settings.tourStatus.rawValue,
                               "showHints": c.settings.showHints,
                               "stepTick": c.settings.stepTick]
-        object["popover"] = ["open": c.popoverOpen, "hint": c.popoverHint ?? NSNull()] as [String: Any]
+        object["popover"] = ["open": c.popoverOpen, "hint": c.popoverHint ?? NSNull(),
+                             "closedBy": c.popoverClosedBy?.rawValue ?? NSNull()] as [String: Any]
         object["hints"] = ["show": c.settings.showHints, "known": c.settings.hintsSeen.map(\.rawValue),
                            "pending": HintPolicy.pending(c.settings).map(\.rawValue), "onScreen": c.hintOnScreen] as [String: Any]
         if let tour = c.state.tour {

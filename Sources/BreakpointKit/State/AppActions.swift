@@ -93,6 +93,10 @@ public struct AppActions {
     /// The popover opened (true) or closed (false), however it was opened: its first-use hint,
     /// and the tour's popover step moving on when it closes (SPEC §3.12).
     public var popoverVisibilityChanged: (Bool) -> Void
+    /// Something that may close the popover happened (a click outside it, Esc, another app, a
+    /// Space or display change, the menu bar sliding away); the Bool says whether the pointer is on
+    /// the popover. The coordinator asks `PopoverPolicy` and closes it if it should (SPEC §3.8).
+    public var popoverMayClose: (PopoverCloseCause, Bool) -> Void
 
     public init(
         acceptNudge: @escaping () -> Void = {},
@@ -127,7 +131,8 @@ public struct AppActions {
         installUpdate: @escaping () -> Void = {},
         replayTour: @escaping () -> Void = {},
         tour: @escaping (TourInput) -> Void = { _ in },
-        popoverVisibilityChanged: @escaping (Bool) -> Void = { _ in }
+        popoverVisibilityChanged: @escaping (Bool) -> Void = { _ in },
+        popoverMayClose: @escaping (PopoverCloseCause, Bool) -> Void = { _, _ in }
     ) {
         self.acceptNudge = acceptNudge
         self.declineNudge = declineNudge
@@ -162,6 +167,7 @@ public struct AppActions {
         self.replayTour = replayTour
         self.tour = tour
         self.popoverVisibilityChanged = popoverVisibilityChanged
+        self.popoverMayClose = popoverMayClose
     }
 
     /// Does nothing: for previews and snapshots.

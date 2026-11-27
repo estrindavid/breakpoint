@@ -150,6 +150,14 @@ public enum Timing {
     /// copied binary's first run can take a few seconds while macOS checks it).
     public static let installCheckTimeout: TimeInterval = 10
 
+    // §3.8 Popover
+    /// Another app, a Space or a display changing this soon after the popover opened does not
+    /// close it: opening it activates Breakpoint, and macOS may answer with a Space switch.
+    public static let popoverSettle: TimeInterval = 0.5
+    /// While the popover is open, how often the status item checks that the menu bar it hangs from
+    /// is still there and where the pointer is.
+    public static let popoverAnchorCheck: TimeInterval = 0.25
+
     // §3.12 The one-minute tour
     /// The sample break: a shortened eye rest, long enough to read its two coach lines and see the
     /// agent chip turn, short enough to stay a rehearsal.

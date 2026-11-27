@@ -82,6 +82,10 @@ final class AppCoordinator {
     /// The popover is open, and the first-use hint it carries this time, if any.
     var popoverOpen = false
     var popoverHint: String?
+    /// When the popover last opened (the app's clock), and what closed it last, if not the mark,
+    /// a command or the tour (SPEC §3.8).
+    var popoverOpenedAt: Date?
+    var popoverClosedBy: PopoverCloseCause?
     /// The menu-bar mark's latest one-shot movement (SPEC §3.7).
     var markCue: MarkCueEvent?
     /// A run finished normally since the last `publish` (the mark's settle movement).
