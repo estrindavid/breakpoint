@@ -5,7 +5,6 @@
 <p align="center">
   <a href="https://github.com/estrindavid/breakpoint/releases/latest"><img src="https://img.shields.io/github/v/release/estrindavid/breakpoint?label=release&labelColor=0b0f17&color=3dd6b0" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/macOS-14%2B-6c7cff?labelColor=0b0f17" alt="macOS 14 or later">
-  <img src="https://img.shields.io/badge/Swift-no%20dependencies-8b95a5?labelColor=0b0f17" alt="Swift, no dependencies">
   <a href="https://github.com/estrindavid/breakpoint/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/estrindavid/breakpoint/release.yml?label=release%20build&labelColor=0b0f17" alt="Release build"></a>
   <a href="https://github.com/estrindavid/breakpoint/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/estrindavid/breakpoint/ci.yml?branch=main&label=CI&labelColor=0b0f17" alt="CI"></a>
 </p>
