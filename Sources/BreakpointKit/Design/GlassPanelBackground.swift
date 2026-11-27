@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import BreakpointRuntime
 
 /// The one implementation of pop-up glass (SPEC §4.5).
 ///

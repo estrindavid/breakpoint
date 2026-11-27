@@ -9,8 +9,7 @@ import Testing
 struct InstallCheckTests {
     /// A fake CLI copy: any executable file at `~/.breakpoint/bin/breakpoint`.
     func placeCLICopy(_ home: FakeHome) {
-        home.write(".breakpoint/bin/breakpoint", "#!/bin/sh\necho breakpoint 0.0.0\n")
-        try! FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: home.paths.cliCopy.path)
+        home.writeExecutable(FakeHome.cliCopy, "#!/bin/sh\necho breakpoint 0.0.0\n")
     }
 
     @Test func anInstallThatReadsBackWithItsCommandInPlaceHasNoProblem() throws {
@@ -36,9 +35,9 @@ struct InstallCheckTests {
         defer { home.cleanup() }
         let missing = InstallCheck.problem(for: .cursor, state: .installed, environment: home.environment)
         #expect(missing == "The command its hooks call is missing from ~/.breakpoint/bin. Install again to put it back.")
-        home.write(".breakpoint/bin/breakpoint", "not executable")
+        home.write(FakeHome.cliCopy, "not executable")
         #expect(InstallCheck.problem(for: .cursor, state: .installed, environment: home.environment) == missing)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: home.paths.cliCopy.path)
+        home.makeExecutable(FakeHome.cliCopy)
         #expect(InstallCheck.problem(for: .cursor, state: .installed, environment: home.environment) == nil)
     }
 
@@ -74,26 +73,32 @@ struct InstallCheckTests {
         let home = FakeHome()
         defer { home.cleanup() }
         #expect(InstallCheck.unreachableProblem(cliRuns: false, environment: home.environment)
-                == "The command its hooks call, in ~/.breakpoint/bin, doesn’t run on this Mac. Install again to replace it.")
+                == "The command its hooks call, in ~/.breakpoint/bin, doesn’t run on this \(BreakpointPlatform.computerName). Install again to replace it.")
         #expect(InstallCheck.unreachableProblem(cliRuns: true, environment: home.environment)
-                == "Its hooks can’t reach Breakpoint. To see why, run ~/.breakpoint/bin/breakpoint doctor.")
+                == "Its hooks can’t reach Breakpoint. To see why, run ~/\(FakeHome.cliCopy) doctor.")
         // A copy that runs but is not Breakpoint's CLI does not count as running.
         placeCLICopy(home)
-        home.write(".breakpoint/bin/breakpoint", "#!/bin/sh\necho something else\n")
-        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: home.paths.cliCopy.path)
+        home.writeExecutable(FakeHome.cliCopy, "#!/bin/sh\necho something else\n")
         #expect(!InstallCheck.cliRuns(paths: home.paths))
     }
 
     @Test func theCheckRunsTheHookCommandFormWithKindTest() {
-        let command = InstallCheck.hookCommand(for: .claudeCode)
-        #expect(command == HookCommand.shell(.test, source: .claudeCode))
+        let paths = BreakpointPaths(home: URL(fileURLWithPath: "/tmp/h"))
+        let command = InstallCheck.hookCommand(for: .claudeCode, paths: paths)
+        #expect(command == HookCommand.shell(.test, source: .claudeCode, paths: paths))
         #expect(command.contains("emit test --source claude-code"))
-        #expect(InstallCheck.hookCommand(for: .codexNotify).contains("--source codex"))
-        let process = InstallCheck.hookProcess(for: .shell, paths: BreakpointPaths(home: URL(fileURLWithPath: "/tmp/h")),
+        #expect(InstallCheck.hookCommand(for: .codexNotify, paths: paths).contains("--source codex"))
+        let process = InstallCheck.hookProcess(for: .shell, paths: paths,
                                                environment: ["HOME": "/elsewhere", "PATH": "/usr/bin:/bin"])
+        #if os(Windows)
+        #expect(process.executableURL?.lastPathComponent.lowercased() == "powershell.exe")
+        #expect(process.arguments == ["-NoProfile", "-NonInteractive", "-Command", HookCommand.shell(.test, source: .shell, paths: paths)])
+        #expect(process.environment?["USERPROFILE"] == PathDisplay.native(paths.home))
+        #else
         #expect(process.executableURL?.path == "/bin/sh")
-        #expect(process.arguments == ["-c", HookCommand.shell(.test, source: .shell)])
-        #expect(process.environment?["HOME"] == "/tmp/h")
+        #expect(process.arguments == ["-c", HookCommand.shell(.test, source: .shell, paths: paths)])
+        #endif
+        #expect(process.environment?["HOME"] == paths.home.path)
         #expect(process.environment?["PATH"] == "/usr/bin:/bin")
     }
 }

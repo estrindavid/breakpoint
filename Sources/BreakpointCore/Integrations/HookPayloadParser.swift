@@ -328,7 +328,7 @@ public enum HookPayloadParser {
     static func absolutePath(_ raw: String) -> String? {
         var path = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if path.hasPrefix("file://"), let url = URL(string: path), url.isFileURL { path = url.path }
-        guard path.hasPrefix("/"), !path.contains("\0") else { return nil }
+        guard PathDisplay.isAbsolute(path), !path.contains("\0") else { return nil }
         return path
     }
 
@@ -430,8 +430,7 @@ public enum RequestSubject {
     }
 
     static func fileName(_ path: String) -> String? {
-        let name = (path as NSString).lastPathComponent
-        return clean(name)
+        clean(PathDisplay.lastComponent(path))
     }
 
     /// First line, control characters removed, spaces collapsed, secrets masked, ≤ `limit`.

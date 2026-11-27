@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import BreakpointCore
+import BreakpointRuntime
 
 // Small building blocks shared by the settings
 // panes and onboarding, assembled from the design system (`SettingsSection`, `SettingRow`,

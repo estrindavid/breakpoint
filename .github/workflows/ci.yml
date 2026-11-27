@@ -1,6 +1,12 @@
-# Checks every pull request and every push to main: a debug build with zero warnings, the unit
-# tests (scripts/test.sh) and the end-to-end flows (scripts/e2e.sh: the debug app headless, with
-# temporary home folders, driven through the CLI). See CONTRIBUTING.md.
+# Checks every pull request and every push to main, on both platforms:
+#
+#   macOS    a debug build with zero warnings, the unit tests (scripts/test.sh) and the end-to-end
+#            flows (scripts/e2e.sh: the debug app headless, with temporary home folders, driven
+#            through the CLI).
+#   Windows  the same three on Windows (scripts/windows/*.ps1), then the release build packaged
+#            as it ships, started on a runner with no Swift toolchain on PATH.
+#
+# See CONTRIBUTING.md.
 #
 # Safe for pull requests from forks: `pull_request` (never `pull_request_target`), a read-only
 # token, no secrets, and checkout without stored credentials.
@@ -14,6 +20,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -61,3 +68,67 @@ jobs:
 
       - name: End-to-end flows
         run: scripts/e2e.sh -v
+
+  windows:
+    # A separate check, so the macOS one keeps the name branch protection requires.
+    name: Build and test (Windows)
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Swift toolchain
+        uses: compnerd/gha-setup-swift@9ff1ee4c44888c5817fc14d1b257ac8cabb4935f # v0.5.1
+        with:
+          swift-version: swift-6.4.3-release
+          swift-build: 6.4.3-RELEASE
+
+      - name: Toolchain
+        run: |
+          swift --version
+          git config --get core.autocrlf
+
+      - name: Build with zero warnings
+        run: scripts/windows/build.ps1 -CheckWarnings
+
+      - name: Unit tests
+        run: scripts/windows/test.ps1 -CheckWarnings
+
+      - name: Package as released, then run it without the toolchain
+        run: |
+          scripts/windows/package.ps1 -Version (scripts/windows/version.ps1) -OutDir build/release
+          scripts/windows/smoke.ps1 -Zip (Get-ChildItem build/release/Breakpoint-*-windows-x64.zip).FullName
+
+  windows-e2e:
+    # The end-to-end flows start the app and the CLI hundreds of times, and starting a process on a
+    # Windows runner is slow: the flows are split across four parallel jobs (E2E_SHARD).
+    name: End-to-end (Windows ${{ matrix.shard }}/4)
+    runs-on: windows-2025
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Swift toolchain
+        uses: compnerd/gha-setup-swift@9ff1ee4c44888c5817fc14d1b257ac8cabb4935f # v0.5.1
+        with:
+          swift-version: swift-6.4.3-release
+          swift-build: 6.4.3-RELEASE
+
+      - name: End-to-end flows
+        env:
+          E2E_SHARD: ${{ matrix.shard }}/4
+        run: scripts/windows/e2e.ps1 -Verbose

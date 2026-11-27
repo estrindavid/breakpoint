@@ -26,7 +26,14 @@ public enum LoginItemAvailability: Equatable, Sendable {
 
     /// True when some folder above the bundle is named Applications.
     public static func isInApplicationsFolder(_ bundlePath: String) -> Bool {
-        URL(fileURLWithPath: bundlePath).standardizedFileURL.pathComponents.dropLast().contains("Applications")
+        let folders = URL(fileURLWithPath: bundlePath).standardizedFileURL.pathComponents.dropLast()
+        #if os(Windows)
+        // Windows: where installers put apps, `%LOCALAPPDATA%\Programs` (per user, as
+        // scripts/windows/install.ps1 does) or `Program Files`.
+        return folders.contains { ["programs", "program files", "program files (x86)"].contains($0.lowercased()) }
+        #else
+        return folders.contains("Applications")
+        #endif
     }
 
     /// Registering is allowed only from an Applications folder.

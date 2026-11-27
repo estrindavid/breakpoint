@@ -1,4 +1,5 @@
 import SwiftUI
+import BreakpointRuntime
 
 /// A circular progress ring (SPEC §3.3–3.4, §3.8): starts at 12 o'clock, fills clockwise, round
 /// caps. Used for the 44 pt still-time ring, the 140 / 160 pt break rings, the 2 pt auto-start

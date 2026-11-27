@@ -32,7 +32,7 @@ struct RunReportTests {
         let done = apply(&t, ev(.agentFinished, message: "All 214 tests pass.", at: 9))
         #expect(done.transitions == [.runEnded(key, .finished(duration: 9 * 60))])
         #expect(session(t)?.report.message == "All 214 tests pass.")
-        #expect(t.estimator.runs[.claudeCode] == [9 * 60])
+        #expect(t.estimator.runs[.claudeCode] == [TimeInterval]([9 * 60]))
     }
 
     @Test func aBackgroundStopWhileWaitingMeansWorkingAgain() {

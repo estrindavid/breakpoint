@@ -1,0 +1,8 @@
+# One line ending everywhere: the shell scripts, the byte-exact installer tests and the hook
+# command strings all expect LF, also in a Windows checkout (core.autocrlf would otherwise turn
+# them into CRLF).
+* text=auto eol=lf
+*.webp binary
+*.png binary
+*.ico binary
+*.zip binary

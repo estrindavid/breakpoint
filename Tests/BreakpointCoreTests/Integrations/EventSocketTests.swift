@@ -33,14 +33,14 @@ final class ServerFixture {
     }
 
     /// Connects a raw client.
-    func connect() throws -> Int32 {
+    func connect() throws -> UnixSocket.Handle {
         switch UnixSocket.connect(path: socket.path, deadline: Date().addingTimeInterval(1)) {
         case .success(let fd): return fd
         case .failure(let error): throw error
         }
     }
 
-    func write(_ fd: Int32, _ text: String) {
+    func write(_ fd: UnixSocket.Handle, _ text: String) {
         _ = UnixSocket.writeAll(fd, Data(text.utf8), deadline: Date().addingTimeInterval(1))
     }
 
@@ -65,6 +65,7 @@ struct EventSocketTests {
         #expect(!f.deliveredOffQueue)
     }
 
+    #if !os(Windows)
     @Test func socketAndFolderAreOwnerOnly() throws {
         let f = try ServerFixture()
         defer { f.tearDown() }
@@ -75,6 +76,7 @@ struct EventSocketTests {
         #expect(stat(f.socket.directory.path, &info) == 0)
         #expect(info.st_mode & 0o777 == 0o700)
     }
+    #endif
 
     @Test func manyConcurrentShortLivedClients() throws {
         let f = try ServerFixture()
@@ -99,7 +101,7 @@ struct EventSocketTests {
         // Two silent clients hold both slots for a moment.
         let a = try f.connect()
         let b = try f.connect()
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { close(a); close(b) }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { UnixSocket.close(a); UnixSocket.close(b) }
         let sent = EventInbox()
         DispatchQueue.concurrentPerform(iterations: 40) { i in
             let event = f.event(session: "q\(i)")
@@ -114,7 +116,7 @@ struct EventSocketTests {
         let f = try ServerFixture()
         defer { f.tearDown() }
         let fd = try f.connect()
-        defer { close(fd) }
+        defer { UnixSocket.close(fd) }
         f.write(fd, "hello\n{not json}\n[1,2]\n{\"v\":1}\n{\"v\":1,\"type\":\"event\"}\n\n   \n\u{0}\u{1}\u{2}\n")
         f.write(fd, "{\"v\":2,\"type\":\"event\",\"event\":{\"kind\":\"agentStarted\",\"source\":\"x\",\"ts\":1}}\n")
         f.write(fd, "{\"v\":1,\"type\":\"event\",\"event\":{\"kind\":\"somethingNew\",\"source\":\"x\",\"ts\":1}}\n")
@@ -133,7 +135,7 @@ struct EventSocketTests {
         let f = try ServerFixture()
         defer { f.tearDown() }
         let fd = try f.connect()
-        defer { close(fd) }
+        defer { UnixSocket.close(fd) }
         let events = (0..<20).map { f.event(session: "s\($0)") }
         f.write(fd, try events.map(f.line).joined())
         #expect(waitUntil { f.inbox.count == 20 })
@@ -144,7 +146,7 @@ struct EventSocketTests {
         let f = try ServerFixture()
         defer { f.tearDown() }
         let fd = try f.connect()
-        defer { close(fd) }
+        defer { UnixSocket.close(fd) }
         let text = try f.line(f.event())
         let mid = text.index(text.startIndex, offsetBy: 17)
         f.write(fd, String(text[..<mid]))
@@ -158,7 +160,7 @@ struct EventSocketTests {
         let f = try ServerFixture()
         defer { f.tearDown() }
         let fd = try f.connect()
-        defer { close(fd) }
+        defer { UnixSocket.close(fd) }
         // `encodedLine` refuses > 64 KB, so build the oversized line by hand.
         let big = "{\"v\":1,\"type\":\"event\",\"event\":{\"kind\":\"agentStarted\",\"source\":\"x\",\"ts\":1,\"title\":\"" + String(repeating: "y", count: 70_000) + "\"}}\n"
         f.write(fd, big)
@@ -174,13 +176,13 @@ struct EventSocketTests {
         defer { f.tearDown() }
         let fd = try f.connect()
         f.write(fd, "{\"v\":1,\"type\":\"event\",\"event\":{\"kind\":\"agentSta")
-        close(fd)
+        UnixSocket.close(fd)
         // A complete object without the final newline is still accepted when the peer closes.
         let fd2 = try f.connect()
         var text = try f.line(f.event(session: "last"))
         text.removeLast()
         f.write(fd2, text)
-        close(fd2)
+        UnixSocket.close(fd2)
         #expect(waitUntil { f.inbox.count == 1 })
         #expect(f.inbox.events.first?.sessionID == "last")
         #expect(waitUntil { f.server.connectionCount == 0 })
@@ -190,14 +192,14 @@ struct EventSocketTests {
         let f = try ServerFixture(idleTimeout: 0.3)
         defer { f.tearDown() }
         let silent = try f.connect()
-        defer { close(silent) }
+        defer { UnixSocket.close(silent) }
         #expect(EventSocketClient.send(.event(f.event()), to: f.socket))
         #expect(waitUntil { f.inbox.count == 1 })
         #expect(waitUntil { f.server.connectionCount == 0 })
         // The server closed it: reading gives EOF.
         var byte: UInt8 = 0
-        #expect(UnixSocket.waitFor(silent, events: Int16(POLLIN), until: Date().addingTimeInterval(1)))
-        #expect(read(silent, &byte, 1) == 0)
+        #expect(UnixSocket.waitFor(silent, events: UnixSocket.pollIn, until: Date().addingTimeInterval(1)))
+        #expect(UnixSocket.read(silent, &byte, 1) == 0)
     }
 
     @Test func statusRequestAndReply() throws {
@@ -261,8 +263,8 @@ struct EventSocketTests {
         // A socket file nobody listens on, as a crash leaves it.
         let fd = try #require(UnixSocket.makeSocket())
         #expect(UnixSocket.bind(fd, UnixSocket.address(socket.path)!) == 0)
-        close(fd)
-        #expect(FileManager.default.fileExists(atPath: socket.path))
+        UnixSocket.close(fd)
+        #expect(UnixSocket.socketFileExists(socket.path))
         #expect(!EventSocketClient.send(.event(AgentEvent(kind: .test, source: "x", timestamp: Date())), to: socket))
 
         let server = EventSocketServer(socketPath: socket, deliveryQueue: DispatchQueue(label: "q"))
@@ -298,7 +300,7 @@ struct EventSocketTests {
         f.server.stop()
         f.server.stop()
         #expect(!f.server.isRunning)
-        #expect(!FileManager.default.fileExists(atPath: f.socket.path))
+        #expect(!UnixSocket.socketFileExists(f.socket.path))
         #expect(!EventSocketClient.send(.event(f.event()), to: f.socket))
         try f.server.start()
         #expect(EventSocketClient.send(.event(f.event()), to: f.socket))
@@ -309,12 +311,12 @@ struct EventSocketTests {
         let f = try ServerFixture()
         defer { f.tearDown() }
         // Someone replaced the socket file (e.g. a second copy started after removing ours).
-        unlink(f.socket.path)
+        try? FileManager.default.removeItem(atPath: f.socket.path)
         let other = EventSocketServer(socketPath: f.socket, deliveryQueue: DispatchQueue(label: "o"))
         try other.start()
         defer { other.stop() }
         f.server.stop()
-        #expect(FileManager.default.fileExists(atPath: f.socket.path))
+        #expect(UnixSocket.socketFileExists(f.socket.path))
     }
 
     @Test func clientFailsFastWithoutAServer() throws {

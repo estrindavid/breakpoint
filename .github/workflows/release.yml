@@ -4,6 +4,11 @@
 #   tag v0.3.0  →  tests → build/Breakpoint.app (ad-hoc signed) → Breakpoint-0.3.0.zip, signed with
 #   the release key → update-feed.json, install.sh, SHA256SUMS → GitHub release "Breakpoint 0.3.0"
 #
+#   and, on a Windows runner first: tests and the end-to-end flows → the static Windows build →
+#   Breakpoint-0.3.0-windows-x64.zip, installed and run without the toolchain (smoke.ps1). The
+#   macOS job signs that zip with the same key and tool, and the release carries it with
+#   update-feed-windows.json and install.ps1. A Windows failure stops the whole release.
+#
 # One repository secret: UPDATE_SIGNING_KEY, the release key's private half, set once by
 # scripts/release-keygen.sh, which also writes the public half into UpdateKey.swift. A real release
 # fails at once if either is missing (an unsigned release could never update itself); run
@@ -33,7 +38,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  windows:
+    name: Windows build
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - name: Swift toolchain
+        uses: compnerd/gha-setup-swift@9ff1ee4c44888c5817fc14d1b257ac8cabb4935f # v0.5.1
+        with:
+          swift-version: swift-6.4.3-release
+          swift-build: 6.4.3-RELEASE
+
+      - name: Tests and end-to-end flows
+        run: |
+          scripts/windows/build.ps1 -CheckWarnings
+          scripts/windows/test.ps1 -CheckWarnings
+          scripts/windows/e2e.ps1
+
+      - name: Package, then install and run it without the toolchain
+        run: |
+          $version = scripts/windows/version.ps1
+          scripts/windows/package.ps1 -Version $version -OutDir build/windows
+          scripts/windows/smoke.ps1 -Zip "build/windows/Breakpoint-$version-windows-x64.zip"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-release
+          path: build/windows/Breakpoint-*-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 7
+
   release:
+    needs: windows
     # The app uses macOS 26 APIs behind availability checks, so it needs the macOS 26 SDK.
     runs-on: macos-26
     timeout-minutes: 45
@@ -105,14 +149,20 @@ jobs:
           BREAKPOINT_ARCHS: arm64 x86_64
         run: scripts/build-app.sh
 
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-release
+          path: build/windows
+
       - name: Package and sign
         env:
           # A dry run never sees the real key, even if its throwaway key is somehow empty.
           UPDATE_SIGNING_KEY: ${{ env.DRY_RUN == 'true' && (env.DRY_RUN_KEY || 'dry-run-key-missing') || secrets.UPDATE_SIGNING_KEY }}
         run: |
           set -euo pipefail
-          scripts/package-release.sh build/Breakpoint.app "$VERSION" "$NOTES" build/release
-          cat build/release/update-feed.json build/release/SHA256SUMS
+          scripts/package-release.sh build/Breakpoint.app "$VERSION" "$NOTES" build/release \
+            "build/windows/Breakpoint-$VERSION-windows-x64.zip"
+          cat build/release/update-feed.json build/release/update-feed-windows.json build/release/SHA256SUMS
 
       - name: Dry run only, install from the packaged files
         if: env.DRY_RUN == 'true'
@@ -152,7 +202,8 @@ jobs:
         run: |
           set -euo pipefail
           ASSETS=(build/release/Breakpoint-$VERSION.zip build/release/update-feed.json build/release/install.sh
-                  build/release/SHA256SUMS)
+                  build/release/Breakpoint-$VERSION-windows-x64.zip build/release/update-feed-windows.json
+                  build/release/install.ps1 build/release/SHA256SUMS)
           if gh release view "$TAG" > /dev/null 2>&1; then
             gh release upload "$TAG" "${ASSETS[@]}" --clobber
           else

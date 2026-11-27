@@ -1,5 +1,6 @@
 import SwiftUI
 import BreakpointCore
+import BreakpointRuntime
 
 // SPEC §3.9 "show, don't tell": each preset card
 // carries a mini timeline of a two-hour session with ticks where breaks would fall.

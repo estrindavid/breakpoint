@@ -1,4 +1,5 @@
 import SwiftUI
+import BreakpointRuntime
 
 // The app icon, drawn in code and rendered to an
 // .iconset by `BreakpointSnapshots --app-icon` during scripts/build-app.sh.

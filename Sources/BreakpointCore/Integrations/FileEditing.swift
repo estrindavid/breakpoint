@@ -452,10 +452,22 @@ public struct CLIInstaller: Sendable {
         self.bundledCLI = bundledCLI
     }
 
+    /// Files that travel with the CLI on Windows: the Visual C++ runtime the statically linked
+    /// Swift code still loads, shipped beside the app's executables (app-local deployment) so
+    /// the copy runs on a PC without the Visual C++ Redistributable. Copied when present next to
+    /// `bundledCLI`; none on macOS.
+    public static var companionFiles: [String] {
+        #if os(Windows)
+        ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"]
+        #else
+        []
+        #endif
+    }
+
     /// Sidecar recording the installed copy's version.
     public var versionFile: URL { paths.binDirectory.appendingPathComponent(".breakpoint-version") }
 
-    public var isInstalled: Bool { FileManager.default.isExecutableFile(atPath: paths.cliCopy.path) }
+    public var isInstalled: Bool { Executable.isRunnable(paths.cliCopy) }
 
     /// The version recorded next to the installed copy, if any.
     public var installedVersion: String? {
@@ -475,6 +487,11 @@ public struct CLIInstaller: Sendable {
         let copySize = (try? fm.attributesOfItem(atPath: paths.cliCopy.path))?[.size] as? NSNumber
         guard let sourceSize else { return false }  // nothing to copy from
         if sourceSize != copySize { return true }
+        let folder = source.deletingLastPathComponent()
+        for name in Self.companionFiles where fm.fileExists(atPath: folder.appendingPathComponent(name).path)
+            && !fm.fileExists(atPath: paths.binDirectory.appendingPathComponent(name).path) {
+            return true
+        }
         guard let a = try? Data(contentsOf: source, options: .mappedIfSafe),
               let b = try? Data(contentsOf: paths.cliCopy, options: .mappedIfSafe) else { return true }
         return a != b
@@ -497,6 +514,14 @@ public struct CLIInstaller: Sendable {
                 try fm.createDirectory(at: paths.binDirectory, withIntermediateDirectories: true,
                                        attributes: [.posixPermissions: 0o755])
                 try AtomicFile.write(data, to: target, mode: 0o755)
+                for name in Self.companionFiles {
+                    let companion = source.deletingLastPathComponent().appendingPathComponent(name)
+                    guard let bytes = try? Data(contentsOf: companion) else { continue }
+                    let destination = paths.binDirectory.appendingPathComponent(name)
+                    if (try? Data(contentsOf: destination)) != bytes {
+                        try AtomicFile.write(bytes, to: destination, mode: 0o644)
+                    }
+                }
             } catch let error as IntegrationError {
                 throw error
             } catch {

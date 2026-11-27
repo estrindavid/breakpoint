@@ -263,7 +263,7 @@ struct CopilotInstallerTests {
         let integration = CopilotIntegration(environment: home.environment)
         #expect(integration.status() == .notFound)
         home.mkdir(".copilot")
-        let command = HookCommand.shell(.agentFinished, source: .copilot)
+        let command = HookCommand.shell(.agentFinished, source: .copilot, paths: home.paths)
         home.write(".copilot/hooks/breakpoint.json", "{\"version\":1,\"hooks\":{\"agentStop\":[{\"type\":\"command\",\"bash\":\(JSONRender.quote(command)),\"timeoutSec\":5}]}}")
         #expect(integration.status() == .outdated)
         home.write(".copilot/hooks/breakpoint.json", "{\"version\":1,\"hooks\":{\"agentStop\":[{\"bash\":\"~/.breakpoint/bin/breakpoint emit agentFinished --source copilot --x\"}]}}")

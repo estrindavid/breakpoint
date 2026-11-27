@@ -50,6 +50,42 @@ export BREAKPOINT_HOME="$(mktemp -d -t bp)"
 With `BREAKPOINT_HOME` set, the app's data folder, `~/.breakpoint` and every coding tool's config
 file move under that folder, and the login item is never registered.
 
+## Windows
+
+The same package builds the Windows app (`Breakpoint.exe`, Win32 and Direct2D) and the same CLI.
+The engine, the coordinator, the CLI and the tests are shared; only the windows and the system
+services are per platform. [docs/WINDOWS.md](docs/WINDOWS.md) records how and why the Windows app
+differs.
+
+You need 64-bit Windows 10 2004 or later (Windows 11 for the Acrylic and Mica backdrops), the
+[Swift toolchain for Windows](https://www.swift.org/install/windows/) 6.4.3, Visual Studio 2022 or
+later (or its Build Tools) with the "Desktop development with C++" workload and a Windows 11 SDK,
+and, for the end-to-end flows, Git for Windows (its bash) and `jq` on `PATH`.
+
+| What | Command (PowerShell) |
+|---|---|
+| Build (debug) | `scripts/windows/build.ps1` (`-CheckWarnings` fails on any warning, as CI does) |
+| Unit tests | `scripts/windows/test.ps1` (extra arguments pass through, e.g. `-- --filter Wire`) |
+| End-to-end flows | `scripts/windows/e2e.ps1` (runs `scripts/e2e.sh` in Git Bash against the Windows build) |
+| Pictures of every screen | `.build\debug\BreakpointApp.exe --debug-snapshots build\snapshots-windows` |
+| The release zip | `scripts/windows/package.ps1 -Version (scripts/windows/version.ps1) -OutDir build/release` |
+| Install and run it as a user would | `scripts/windows/smoke.ps1 -Zip build/release/Breakpoint-<version>-windows-x64.zip` |
+
+Set `BREAKPOINT_HOME` the same way before running the app or the CLI by hand:
+
+```powershell
+$env:BREAKPOINT_HOME = Join-Path $env:TEMP "bp-$(Get-Random)"
+.build\debug\BreakpointApp.exe --debug-simulate --debug-trace
+.build\debug\breakpoint.exe debug help
+```
+
+Windows-only code lives in `Sources/BreakpointWindows` (Swift) and `Sources/CBreakpointWin32` (a
+small C++ target with a C API for Direct2D, DirectWrite, DirectComposition, WinHTTP and the
+notification area). A change to shared code must build and pass on both: CI runs "Build and test"
+on macOS and "Build and test (Windows)" on Windows for every pull request. Each Windows surface is a
+pure `draw(canvas, controls, state)` function, so `--debug-snapshots` renders exactly what the
+window shows.
+
 ## What a reviewer checks
 
 These rules are binding; a pull request that breaks one is sent back.

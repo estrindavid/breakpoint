@@ -26,6 +26,6 @@ enum StatusLineCommand {
             if (environment["TERM"] ?? "").isEmpty || environment["TERM"] == "dumb" { environment["TERM"] = "xterm-256color" }
             return TerminalMark.colour(isTerminal: true, environment: environment)
         }
-        return TerminalMark.colour(isTerminal: isatty(STDOUT_FILENO) == 1, environment: environment)
+        return TerminalMark.colour(isTerminal: Console.stdoutIsTerminal, environment: environment)
     }
 }

@@ -39,7 +39,7 @@ public enum UpdateLocation {
     /// `nil` when the app at `app` can be replaced in place.
     public static func blocker(for app: URL, fileManager: FileManager = .default) -> UpdateLocationBlocker? {
         let path = app.standardizedFileURL.path
-        guard app.pathExtension == "app" else { return .notAnApp }
+        guard AppBundle.isApp(app) else { return .notAnApp }
         if path.contains("/AppTranslocation/") { return .translocated }
         let folder = app.deletingLastPathComponent().path
         guard fileManager.isWritableFile(atPath: folder), fileManager.isWritableFile(atPath: path) else {
@@ -76,7 +76,7 @@ public enum UpdateInstallError: Error, Equatable, Sendable {
         case .sizeMismatch, .checksumMismatch, .badSignature:
             return "The download didn't match its signature, so Breakpoint didn't install it."
         case .unpackFailed, .wrongContents, .wrongBundle: return "The download didn't contain the expected app."
-        case .quarantined: return "macOS marked the download as quarantined, so Breakpoint didn't install it."
+        case .quarantined: return "The system marked the download as quarantined, so Breakpoint didn't install it."
         case .blocked(let blocker): return blocker.explanation
         case .breakInProgress: return "A break started, so the update waits. Try again after it."
         case .swapFailed: return "Breakpoint couldn't replace itself."
@@ -107,12 +107,12 @@ public struct UpdateInstaller {
     public let bundleIdentifier: String
     public let current: SemanticVersion
     public let publicKeyBase64: String?
-    /// Unpacks a zip into a folder (`/usr/bin/ditto -x -k`; injectable for tests).
+    /// Unpacks a zip into a folder (`AppBundle.unpack`; injectable for tests).
     public var unpack: (URL, URL) throws -> Void
 
     public init(installedApp: URL, bundleIdentifier: String = BreakpointVersion.bundleIdentifier,
                 current: SemanticVersion = .current, publicKeyBase64: String? = UpdateKey.publicKeyBase64,
-                unpack: @escaping (URL, URL) throws -> Void = UpdateInstaller.ditto) {
+                unpack: @escaping (URL, URL) throws -> Void = AppBundle.unpack) {
         self.installedApp = installedApp.standardizedFileURL
         self.bundleIdentifier = bundleIdentifier
         self.current = current
@@ -164,7 +164,7 @@ public struct UpdateInstaller {
         do {
             let items = try fm.contentsOfDirectory(at: staging, includingPropertiesForKeys: nil)
                 .filter { !$0.lastPathComponent.hasPrefix(".") && $0.lastPathComponent != "__MACOSX" }
-            guard items.count == 1, let app = items.first, app.pathExtension == "app", Self.isRealFolder(app) else {
+            guard items.count == 1, let app = items.first, AppBundle.isApp(app), AppBundle.isRealFolder(app) else {
                 throw UpdateInstallError.wrongContents
             }
             try checkBundle(app, version: release.version)
@@ -180,8 +180,8 @@ public struct UpdateInstaller {
         guard let info = Self.bundleInfo(app) else { throw UpdateInstallError.wrongBundle("no Info.plist") }
         guard info.identifier == bundleIdentifier else { throw UpdateInstallError.wrongBundle("identifier \(info.identifier)") }
         guard info.version == version else { throw UpdateInstallError.wrongBundle("version \(info.version)") }
-        let executable = app.appendingPathComponent("Contents/MacOS/\(info.executable)")
-        guard FileManager.default.isExecutableFile(atPath: executable.path) else {
+        let executable = AppBundle.executable(app, info)
+        guard Executable.isRunnable(executable) else {
             throw UpdateInstallError.wrongBundle("no executable")
         }
         if Self.isQuarantined(app) || Self.isQuarantined(executable) { throw UpdateInstallError.quarantined }
@@ -219,14 +219,11 @@ public struct UpdateInstaller {
             && staging.lastPathComponent.hasPrefix(stagingPrefix)
             && staging.deletingLastPathComponent().path == installed.deletingLastPathComponent().path
             && backup.deletingLastPathComponent().path == staging.path
-            && installed.pathExtension == "app" && backup.pathExtension == "app"
+            && AppBundle.isApp(installed) && AppBundle.isApp(backup)
     }
 
     /// A directory, not a symbolic link to one.
-    static func isRealFolder(_ url: URL) -> Bool {
-        var info = stat()
-        return lstat(url.path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
-    }
+    static func isRealFolder(_ url: URL) -> Bool { AppBundle.isRealFolder(url) }
 
     /// Removes staging folders left next to the app by an update that was interrupted.
     public static func cleanUpLeftovers(nextTo app: URL, except keep: URL? = nil) {
@@ -247,38 +244,12 @@ public struct UpdateInstaller {
         public let executable: String
     }
 
-    public static func bundleInfo(_ app: URL) -> BundleInfo? {
-        guard let data = try? Data(contentsOf: app.appendingPathComponent("Contents/Info.plist")),
-              let plist = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any],
-              let identifier = plist["CFBundleIdentifier"] as? String,
-              let version = plist["CFBundleShortVersionString"] as? String,
-              let executable = plist["CFBundleExecutable"] as? String,
-              !executable.contains("/") else { return nil }
-        return BundleInfo(identifier: identifier, version: version, executable: executable)
-    }
+    public static func bundleInfo(_ app: URL) -> BundleInfo? { AppBundle.bundleInfo(app) }
 
-    public static func isQuarantined(_ url: URL) -> Bool {
-        getxattr(url.path, "com.apple.quarantine", nil, 0, 0, XATTR_NOFOLLOW) >= 0
-    }
+    public static func isQuarantined(_ url: URL) -> Bool { AppBundle.isQuarantined(url) }
 
-    static func exchange(_ a: URL, _ b: URL) throws {
-        guard renamex_np(a.path, b.path, UInt32(RENAME_SWAP)) == 0 else {
-            throw UpdateInstallError.swapFailed(String(cString: strerror(errno)))
-        }
-    }
+    static func exchange(_ a: URL, _ b: URL) throws { try AppBundle.exchange(a, b) }
 
-    /// `/usr/bin/ditto -x -k ARCHIVE FOLDER`. A zip that is not quarantined unpacks without
-    /// quarantine; a quarantined one passes it on (and `checkBundle` then refuses it).
-    public static func ditto(_ archive: URL, _ folder: URL) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = ["-x", "-k", archive.path, folder.path]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw UpdateInstallError.unpackFailed("ditto exited \(process.terminationStatus)")
-        }
-    }
+    /// `/usr/bin/ditto -x -k ARCHIVE FOLDER` on macOS (`AppBundle.unpack`).
+    public static func ditto(_ archive: URL, _ folder: URL) throws { try AppBundle.unpack(archive, folder) }
 }

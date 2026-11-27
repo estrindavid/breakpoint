@@ -66,7 +66,7 @@ public final class HistoryStore {
     /// Lines are found and their `start` compared on the raw bytes (memchr / memmem / memcmp).
     public func entries(in interval: DateInterval) throws -> [HistoryEntry] {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
-        let data = try Data(contentsOf: fileURL)
+        let data = try SafeFile.read(fileURL)
         let lower = Array(ISO8601.string(from: interval.start).utf8)
         let upper = Array(ISO8601.string(from: interval.end).utf8)
         var candidates: [Data] = []
@@ -124,7 +124,7 @@ public final class HistoryStore {
             data.append(line)
             data.append(Self.newline)
         }
-        try data.write(to: fileURL, options: .atomic)
+        try SafeFile.writeAtomically(data, to: fileURL)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
 
@@ -139,7 +139,7 @@ public final class HistoryStore {
     /// any other spelling are decoded in full.
     public func totals() throws -> HistoryTotals {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return .empty }
-        let data = try Data(contentsOf: fileURL)
+        let data = try SafeFile.read(fileURL)
         var totals = HistoryTotals()
         var earliest: [UInt8]?
         data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> Void in
@@ -226,7 +226,7 @@ public final class HistoryStore {
         let encoder = JSONFile<[HistoryEntry]>.encoder
         var data = try encoder.encode(try allEntries())
         data.append(Self.newline)
-        try data.write(to: url, options: .atomic)
+        try SafeFile.writeAtomically(data, to: url)
     }
 
     public func deleteAll() throws {
@@ -252,7 +252,7 @@ public final class HistoryStore {
     /// The file's non-blank lines; none when the file does not exist.
     private func lines() throws -> [Data] {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
-        let data = try Data(contentsOf: fileURL)
+        let data = try SafeFile.read(fileURL)
         return data.split(separator: Self.newline, omittingEmptySubsequences: true)
             .map { Data($0) }
             .filter { line in line.contains { !($0 == 0x20 || $0 == 0x09 || $0 == 0x0D) } }

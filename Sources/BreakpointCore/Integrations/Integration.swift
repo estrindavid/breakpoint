@@ -92,7 +92,7 @@ public enum IntegrationError: Error, Equatable, Sendable {
 
     public var explanation: String {
         switch self {
-        case .toolNotFound(let id): return "\(id.displayName) was not found on this Mac."
+        case .toolNotFound(let id): return "\(id.displayName) was not found on this \(BreakpointPlatform.computerName)."
         case .unparseableFile(let url, let reason): return "\(url.lastPathComponent) could not be read (\(reason)), so nothing was changed."
         case .notifyAlreadySet(let url): return "\(url.lastPathComponent) already sets notify, so Breakpoint left it alone."
         case .conflictsWith(let id): return "Remove the \(id.displayName) integration first."
@@ -147,7 +147,12 @@ public enum IntegrationRegistry {
         case .codexNotify: return CodexNotifyIntegration(environment: environment)
         case .copilot: return CopilotIntegration(environment: environment)
         case .gemini: return GeminiIntegration(environment: environment)
-        case .shell: return ShellIntegration(environment: environment)
+        case .shell:
+            #if os(Windows)
+            return PowerShellIntegration(environment: environment)
+            #else
+            return ShellIntegration(environment: environment)
+            #endif
         }
     }
 
@@ -170,18 +175,30 @@ public enum IntegrationRegistry {
 /// trusted in /hooks, a shell until a new one starts, a tool that is not running yet).
 public enum InstallCheck {
     /// `HookCommand.shell(.test, source:)`: the hook command form, sending a `test` event.
-    public static func hookCommand(for id: IntegrationID) -> String {
-        HookCommand.shell(.test, source: id.source)
+    public static func hookCommand(for id: IntegrationID, paths: BreakpointPaths) -> String {
+        HookCommand.shell(.test, source: id.source, paths: paths)
     }
 
     /// The process that runs `hookCommand(for:)` the way a tool runs a hook. Not started.
     /// `environment` is the app's own; `HOME` is replaced with `paths.home`.
+    ///
+    /// macOS: `/bin/sh -c`. Windows: Windows PowerShell, `-NoProfile -NonInteractive -Command`, as
+    /// Cursor, Codex, Gemini CLI and Copilot CLI run hooks (and Claude Code without Git Bash); it is
+    /// also the strictest of the shells about the command's form.
     public static func hookProcess(for id: IntegrationID, paths: BreakpointPaths, environment: [String: String]) -> Process {
         let process = Process()
+        #if os(Windows)
+        process.executableURL = windowsPowerShell(environment)
+        process.arguments = ["-NoProfile", "-NonInteractive", "-Command", hookCommand(for: id, paths: paths)]
+        #else
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", hookCommand(for: id)]
+        process.arguments = ["-c", hookCommand(for: id, paths: paths)]
+        #endif
         var variables = environment
         variables["HOME"] = paths.home.path
+        #if os(Windows)
+        variables["USERPROFILE"] = PathDisplay.native(paths.home)
+        #endif
         process.environment = variables
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -194,7 +211,7 @@ public enum InstallCheck {
     public static func problem(for id: IntegrationID, state: IntegrationInstallState,
                                environment: IntegrationEnvironment) -> String? {
         guard state == .installed else { return nil }
-        if !FileManager.default.isExecutableFile(atPath: environment.paths.cliCopy.path) {
+        if !Executable.isRunnable(environment.paths.cliCopy) {
             return "The command its hooks call is missing from \(binFolder(environment)). Install again to put it back."
         }
         return toolProblem(for: id, environment: environment)
@@ -217,7 +234,7 @@ public enum InstallCheck {
     /// The end-to-end check timed out. `cliRuns`: whether the CLI copy itself runs (`cliRuns(…)`).
     public static func unreachableProblem(cliRuns: Bool, environment: IntegrationEnvironment) -> String {
         if !cliRuns {
-            return "The command its hooks call, in \(binFolder(environment)), doesn’t run on this Mac. Install again to replace it."
+            return "The command its hooks call, in \(binFolder(environment)), doesn’t run on this \(BreakpointPlatform.computerName). Install again to replace it."
         }
         let doctor = PathDisplay.abbreviatingHome(environment.paths.cliCopy.path, home: environment.home.path)
         return "Its hooks can’t reach Breakpoint. To see why, run \(doctor) doctor."
@@ -247,6 +264,14 @@ public enum InstallCheck {
         let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         return process.terminationStatus == 0 && text.hasPrefix("breakpoint ")
     }
+
+    #if os(Windows)
+    /// `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`, present on every Windows.
+    static func windowsPowerShell(_ environment: [String: String]) -> URL {
+        let root = environment["SystemRoot"] ?? environment["SYSTEMROOT"] ?? "C:\\Windows"
+        return URL(fileURLWithPath: root).appendingPathComponent("System32/WindowsPowerShell/v1.0/powershell.exe")
+    }
+    #endif
 
     private static func binFolder(_ environment: IntegrationEnvironment) -> String {
         PathDisplay.abbreviatingHome(environment.paths.binDirectory.path, home: environment.home.path)

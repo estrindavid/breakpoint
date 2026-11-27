@@ -1,31 +1,12 @@
 import CoreMotion
 import Foundation
 import BreakpointCore
+import BreakpointRuntime
 
 // The only API in the app that may show a permission prompt (Motion),
 // and only after the user turns on "Check movement with AirPods" (SPEC §2.9).
 
-/// Optional AirPods movement check during `move` and `walk` (SPEC §2.9).
-///
-/// Contract:
-/// - `isAvailable`: `CMHeadphoneMotionManager.isDeviceMotionAvailable` and Motion access not
-///   denied or restricted. Must not trigger the Motion prompt by itself.
-/// - `prepare(enabled:)`: called by the coordinator every tick with the setting. When the setting
-///   is switched on while the app runs and Motion access was never asked, it asks once (briefly
-///   starting updates is the only way to show the system prompt). Never asks at launch, never asks
-///   while the setting is off.
-/// - `begin()`: starts head-motion updates; accumulates rotation activity in a `MovementDetector`
-///   (Core; the threshold is documented there). Degrades silently when unavailable or denied,
-///   or when no supported headphones are connected (no updates arrive).
-/// - `end()`: stops updates and returns whether rotation activity crossed the threshold during
-///   the break. No rep counting.
-@MainActor
-public protocol HeadphoneMotionMonitoring: AnyObject {
-    var isAvailable: Bool { get }
-    func prepare(enabled: Bool)
-    func begin()
-    func end() -> Bool
-}
+// `HeadphoneMotionMonitoring` is declared in BreakpointRuntime (Platform/PlatformServices.swift).
 
 extension HeadphoneMotionMonitoring {
     public func prepare(enabled: Bool) {}

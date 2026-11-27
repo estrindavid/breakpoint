@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import os
 import BreakpointCore
+import BreakpointRuntime
 
 /// Guarantees a frozen app can never leave displays covered (SPEC §3.3, §7.2, decision 4).
 ///

@@ -1,5 +1,8 @@
 import Foundation
 import Testing
+#if os(Windows)
+import WinSDK
+#endif
 @testable import BreakpointCore
 
 /// One JSON-merging tool and its fixtures.
@@ -192,14 +195,14 @@ struct JSONInstallerTests {
     }
 
     /// Breakpoint's events in the file, after install.
-    func assertEntriesPresent(_ tool: JSONToolCase, _ text: String) throws {
+    func assertEntriesPresent(_ tool: JSONToolCase, _ text: String, paths: BreakpointPaths) throws {
         let value = try json(text, comments: tool.id == .gemini)
         let wanted: [JSONSettingsMerger.HookEntry]
         switch tool.id {
-        case .claudeCode: wanted = ClaudeCodeIntegration.entries
-        case .cursor: wanted = CursorIntegration.entries
-        case .codex: wanted = CodexIntegration.entries
-        default: wanted = GeminiIntegration.entries
+        case .claudeCode: wanted = ClaudeCodeIntegration.entries(paths)
+        case .cursor: wanted = CursorIntegration.entries(paths)
+        case .codex: wanted = CodexIntegration.entries(paths)
+        default: wanted = GeminiIntegration.entries(paths)
         }
         for entry in wanted {
             guard case .array(let items)? = value["hooks"]?[entry.event] else {
@@ -224,7 +227,7 @@ struct JSONInstallerTests {
 
         let report = try integration.install()
         let installed = try #require(home.read(tool.file))
-        try assertEntriesPresent(tool, installed)
+        try assertEntriesPresent(tool, installed, paths: home.paths)
         #expect(report.changedFiles.map(\.path) == [home.path(tool.file).path])
         #expect(report.backups.isEmpty)
         #expect(integration.status() == .installed)
@@ -253,7 +256,7 @@ struct JSONInstallerTests {
         #expect(integration.status() == .notInstalled)
         let report = try integration.install()
         #expect(report.backups.count == 1)
-        try assertEntriesPresent(tool, try #require(home.read(tool.file)))
+        try assertEntriesPresent(tool, try #require(home.read(tool.file)), paths: home.paths)
         _ = try integration.uninstall()
         #expect(home.read(tool.file) == "")
         #expect(home.backups.count == 2)
@@ -269,7 +272,7 @@ struct JSONInstallerTests {
 
         let report = try integration.install()
         let installed = try #require(home.read(tool.file))
-        try assertEntriesPresent(tool, installed)
+        try assertEntriesPresent(tool, installed, paths: home.paths)
         #expect(integration.status() == .installed)
         // The backup is the original, byte for byte, and private.
         let backup = try #require(report.backups.first)
@@ -298,7 +301,7 @@ struct JSONInstallerTests {
             home.write(tool.file, text)
             let integration = tool.integration(home)
             _ = try integration.install()
-            try assertEntriesPresent(tool, try #require(home.read(tool.file)))
+            try assertEntriesPresent(tool, try #require(home.read(tool.file)), paths: home.paths)
             #expect(integration.status() == .installed, "\(text.debugDescription)")
             _ = try integration.uninstall()
             #expect(home.read(tool.file) == text, "\(text.debugDescription)")
@@ -315,7 +318,7 @@ struct JSONInstallerTests {
         #expect(integration.status().hasBreakpointEntries)
         _ = try integration.install()
         #expect(integration.status() == .installed)
-        try assertEntriesPresent(tool, try #require(home.read(tool.file)))
+        try assertEntriesPresent(tool, try #require(home.read(tool.file)), paths: home.paths)
         _ = try integration.uninstall()
         // The foreign content of the older file, without any Breakpoint entry.
         let after = try json(try #require(home.read(tool.file)), comments: tool.id == .gemini)
@@ -394,7 +397,7 @@ struct JSONInstallerTests {
     }
 
     @Test func claudeCodeHooksAreAsyncExceptSessionEnd() throws {
-        for entry in ClaudeCodeIntegration.entries {
+        for entry in ClaudeCodeIntegration.entries(.sample) {
             let handler = entry.handler
             #expect(handler["type"] == .string("command"))
             if entry.event == "SessionEnd" {
@@ -404,11 +407,11 @@ struct JSONInstallerTests {
                 #expect(handler["async"] == .bool(true), "\(entry.event)")
             }
         }
-        let events = Set(ClaudeCodeIntegration.entries.map(\.event))
+        let events = Set(ClaudeCodeIntegration.entries(.sample).map(\.event))
         #expect(events == ["SessionStart", "UserPromptSubmit", "PostToolUse", "PermissionRequest", "PreToolUse",
                            "Notification", "Stop", "StopFailure", "SubagentStop", "SessionEnd"])
-        #expect(ClaudeCodeIntegration.entries.first { $0.event == "PreToolUse" }?.matcher == "AskUserQuestion")
-        #expect(ClaudeCodeIntegration.entries.first { $0.event == "PermissionRequest" }?.matcher == "*")
+        #expect(ClaudeCodeIntegration.entries(.sample).first { $0.event == "PreToolUse" }?.matcher == "AskUserQuestion")
+        #expect(ClaudeCodeIntegration.entries(.sample).first { $0.event == "PermissionRequest" }?.matcher == "*")
     }
 
     @Test func cursorNeverRegistersPermissionHooks() throws {
@@ -433,7 +436,7 @@ struct JSONInstallerTests {
         defer { home.cleanup() }
         let report = try JSONToolCase.codex.integration(home).install()
         #expect(report.notes == [CodexIntegration.trustNote])
-        for entry in CodexIntegration.entries {
+        for entry in CodexIntegration.entries(home.paths) {
             switch entry.event {
             case "Interrupt": #expect(entry.handler["timeout"] == .int(1)); #expect(entry.handler["async"] == nil)
             case "SessionEnd": #expect(entry.handler["timeout"] == .int(2)); #expect(entry.handler["async"] == nil)
@@ -471,10 +474,12 @@ struct JSONInstallerTests {
 
         _ = try tool.integration(home).install()
         let link = try FileManager.default.destinationOfSymbolicLink(atPath: home.path(tool.file).path)
-        #expect(link == "../dotfiles/claude-settings.json")
+        #expect(link.replacingOccurrences(of: "\\", with: "/") == "../dotfiles/claude-settings.json")
         #expect(home.read("dotfiles/claude-settings.json")!.contains("--source claude-code"))
+        #if !os(Windows)
         let mode = try FileManager.default.attributesOfItem(atPath: home.path("dotfiles/claude-settings.json").path)[.posixPermissions] as? Int
         #expect(mode == 0o600)
+        #endif
 
         _ = try tool.integration(home).uninstall()
         #expect(home.read("dotfiles/claude-settings.json") == tool.rich)
@@ -484,12 +489,12 @@ struct JSONInstallerTests {
     @Test func installCopiesTheCLIWhenGivenOne() throws {
         let home = setUp(.claude)
         defer { home.cleanup() }
-        home.write("bundle/breakpoint", "#!/bin/sh\nexit 0\n")
+        home.writeExecutable("bundle/breakpoint", "#!/bin/sh\nexit 0\n")
         var environment = home.environment
         environment.bundledCLI = home.path("bundle/breakpoint")
         _ = try ClaudeCodeIntegration(environment: environment).install()
-        #expect(home.read(".breakpoint/bin/breakpoint") == "#!/bin/sh\nexit 0\n")
-        #expect(FileManager.default.isExecutableFile(atPath: home.paths.cliCopy.path))
+        #expect(home.read(FakeHome.cliCopy) == FakeHome.executableText("#!/bin/sh\nexit 0\n"))
+        #expect(FileManager.default.fileExists(atPath: home.paths.cliCopy.path))
         #expect(CLIInstaller(paths: home.paths, bundledCLI: environment.bundledCLI!).installedVersion == BreakpointVersion.current)
     }
 
@@ -498,16 +503,16 @@ struct JSONInstallerTests {
     @Test func cliCopyIsRefreshedWhenItsBytesDiffer() throws {
         let home = FakeHome()
         defer { home.cleanup() }
-        home.write("bundle/breakpoint", "#!/bin/sh\nexit 0\n")
+        home.writeExecutable("bundle/breakpoint", "#!/bin/sh\nexit 0\n")
         let installer = CLIInstaller(paths: home.paths, bundledCLI: home.path("bundle/breakpoint"))
         #expect(installer.needsRefresh())
         try installer.install()
         #expect(!installer.needsRefresh())
-        home.write("bundle/breakpoint", "#!/bin/sh\n# fixed\nexit 0\n")
+        home.writeExecutable("bundle/breakpoint", "#!/bin/sh\n# fixed\nexit 0\n")
         #expect(installer.needsRefresh())
         try installer.install()
         #expect(!installer.needsRefresh())
-        #expect(home.read(".breakpoint/bin/breakpoint") == "#!/bin/sh\n# fixed\nexit 0\n")
+        #expect(home.read(FakeHome.cliCopy) == FakeHome.executableText("#!/bin/sh\n# fixed\nexit 0\n"))
     }
 
     @Test func concurrentWriterIsNotOverwritten() throws {
@@ -522,7 +527,7 @@ struct JSONInstallerTests {
                 // The tool saves the file while Breakpoint is preparing its edit.
                 home.write(".claude/settings.json", "{\n  \"model\": \"sonnet\"\n}\n")
             }
-            return try JSONSettingsMerger.merge(ClaudeCodeIntegration.entries, into: text ?? "", marker: HookMarker(source: .claudeCode),
+            return try JSONSettingsMerger.merge(ClaudeCodeIntegration.entries(home.paths), into: text ?? "", marker: HookMarker(source: .claudeCode),
                                                 format: .init(layout: .grouped), file: file.url)
         }
         #expect(calls == 2)
@@ -569,7 +574,15 @@ struct JSONInstallerTests {
         let home = setUp(tool)
         defer { home.cleanup() }
         home.write("dotfiles/claude.json", tool.rich)
+        #if os(Windows)
+        // Foundation's linkItem copies on Windows; make a real hard link.
+        let linked = PathDisplay.native(home.path(tool.file)).withCString(encodedAs: UTF16.self) { link in
+            PathDisplay.native(home.path("dotfiles/claude.json")).withCString(encodedAs: UTF16.self) { CreateHardLinkW(link, $0, nil) }
+        }
+        #expect(linked)
+        #else
         try FileManager.default.linkItem(at: home.path("dotfiles/claude.json"), to: home.path(tool.file))
+        #endif
         #expect(throws: IntegrationError.self) { try tool.integration(home).install() }
         #expect(home.read(tool.file) == tool.rich)
         #expect(home.backups.isEmpty)

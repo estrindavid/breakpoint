@@ -1,15 +1,8 @@
 import Foundation
 import BreakpointCore
+import BreakpointRuntime
 
-/// Fetches the release feed (SPEC §2.11). The app's only network access lives here.
-@MainActor
-public protocol UpdateFetching: AnyObject {
-    /// Calls `completion` on the main queue with the feed's bytes or an error.
-    func fetch(_ completion: @escaping @MainActor (Result<Data, Error>) -> Void)
-    /// Downloads an update archive into `folder` (a file only this user can read) and calls
-    /// `completion` on the main queue with its location or an error.
-    func download(_ url: URL, into folder: URL, _ completion: @escaping @MainActor (Result<URL, Error>) -> Void)
-}
+// `UpdateFetching` is declared in BreakpointRuntime (Platform/PlatformServices.swift).
 
 /// One HTTPS GET of `UpdateFeed.url` a day, and the archive when the person installs an update:
 /// - an ephemeral session: no cookies, no cache, no credentials, nothing stored on disk;

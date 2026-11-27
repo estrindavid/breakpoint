@@ -1,7 +1,8 @@
 # Releasing Breakpoint
 
-How a new version gets from `main` to everyone's Mac, with no Apple account. The app's behaviour
-is in [SPEC.md §2.11](SPEC.md).
+How a new version gets from `main` to everyone's Mac and PC, with no Apple account and no
+code-signing certificate. The app's behaviour is in [SPEC.md §2.11](SPEC.md); the Windows side is
+in [WINDOWS.md](WINDOWS.md#updates-spec-211).
 
 ## Once, before the first release
 
@@ -34,13 +35,18 @@ higher than the version in `Sources/BreakpointCore/Models/Version.swift` (the on
 lives); sets `BreakpointVersion.current` there; commits "Release 0.3.0"; tags `v0.3.0` with your
 line; and pushes both.
 
-The tag starts [.github/workflows/release.yml](../.github/workflows/release.yml) (about 10 to 15
-minutes; watch the **Actions** tab). It runs the tests, builds `Breakpoint.app` (one universal app
-for Apple silicon and Intel: `BREAKPOINT_ARCHS="arm64 x86_64" scripts/build-app.sh`), zips it, signs the
-zip with `UPDATE_SIGNING_KEY` (and checks the signature against the public key in that version's
-`UpdateKey.swift`, so a release can never be signed with a key its app ignores), and publishes the
-release "Breakpoint 0.3.0" with four files: `Breakpoint-0.3.0.zip`, `update-feed.json`,
-`install.sh` and `SHA256SUMS`.
+The tag starts [.github/workflows/release.yml](../.github/workflows/release.yml) (about 20 to 30
+minutes; watch the **Actions** tab). First, on a Windows runner, it runs the tests and the
+end-to-end flows, builds the static Windows app (`scripts/windows/package.ps1`), and installs and
+runs that zip with nothing but Windows on `PATH` (`scripts/windows/smoke.ps1`); any failure stops
+the release. Then, on macOS, it runs the tests, builds `Breakpoint.app` (one universal app for
+Apple silicon and Intel: `BREAKPOINT_ARCHS="arm64 x86_64" scripts/build-app.sh`), zips it, signs
+both zips with `UPDATE_SIGNING_KEY` (and checks each signature against the public key in that
+version's `UpdateKey.swift`, so a release can never be signed with a key its app ignores), and
+publishes the release "Breakpoint 0.3.0" with seven files: `Breakpoint-0.3.0.zip`,
+`update-feed.json` and `install.sh` for the Mac; `Breakpoint-0.3.0-windows-x64.zip`,
+`update-feed-windows.json` and `install.ps1` for Windows; and `SHA256SUMS`. The release key never
+reaches the Windows runner.
 
 Within a day every copy with automatic checks on (the default) shows, at a quiet moment:
 
@@ -55,6 +61,14 @@ The line is shown in a small card: one sentence, at most 120 characters, plain v
 
 ```sh
 curl -fsSL https://github.com/estrindavid/breakpoint/releases/latest/download/install.sh | bash
+```
+
+On Windows (PowerShell, no administrator; [scripts/windows/install.ps1](../scripts/windows/install.ps1)
+checks size, SHA-256, the identifier and version inside, and the Windows version, then installs into
+`%LOCALAPPDATA%\Programs\Breakpoint` and adds a Start menu entry):
+
+```powershell
+irm https://github.com/estrindavid/breakpoint/releases/latest/download/install.ps1 | iex
 ```
 
 It downloads the latest zip, checks its size and SHA-256 against the release's feed and that the

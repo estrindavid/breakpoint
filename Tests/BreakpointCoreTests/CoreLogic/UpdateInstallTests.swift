@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import Testing
 @testable import BreakpointCore
@@ -6,15 +5,31 @@ import Testing
 /// Fake app bundles and archives in a temporary folder, signed with a throwaway key made here.
 struct UpdateFixture {
     let dir = TemporaryDirectory()
-    let key = Curve25519.Signing.PrivateKey()
-    var publicKey: String { key.publicKey.rawRepresentation.base64EncodedString() }
+    let key = UpdateSigningKey()
+    var publicKey: String { key.publicKeyBase64 }
     static let page = URL(string: "https://github.com/estrindavid/breakpoint/releases/tag/v0.2.0")!
 
-    /// `<folder>/<name>`: Info.plist with these values and an executable.
+    /// The installed app's name: `Breakpoint.app` on macOS, the folder `Breakpoint` on Windows.
+    static let appName = BreakpointPlatform.isWindows ? "Breakpoint" : "Breakpoint.app"
+    /// Another app beside it.
+    static let otherName = BreakpointPlatform.isWindows ? "Other" : "Other.app"
+
+    /// `<folder>/<name>`: the bundle's manifest with these values and an executable
+    /// (macOS: `Contents/Info.plist` and `Contents/MacOS/Breakpoint`; Windows:
+    /// `breakpoint-app.json` and `Breakpoint.exe`).
     @discardableResult
-    func makeApp(in folder: URL, name: String = "Breakpoint.app", identifier: String = BreakpointVersion.bundleIdentifier,
+    func makeApp(in folder: URL, name: String = UpdateFixture.appName, identifier: String = BreakpointVersion.bundleIdentifier,
                  version: String, executable: Bool = true) throws -> URL {
         let app = folder.appendingPathComponent(name, isDirectory: true)
+        #if os(Windows)
+        try FileManager.default.createDirectory(at: app.appendingPathComponent("bin"), withIntermediateDirectories: true)
+        try Data(AppBundle.manifest(identifier: identifier, version: version, executable: "Breakpoint.exe").utf8)
+            .write(to: app.appendingPathComponent(AppBundle.manifestName))
+        if executable {
+            try Data("MZ \(version)\n".utf8).write(to: app.appendingPathComponent("Breakpoint.exe"))
+            try Data("MZ cli \(version)\n".utf8).write(to: app.appendingPathComponent("bin/breakpoint.exe"))
+        }
+        #else
         let macOS = app.appendingPathComponent("Contents/MacOS", isDirectory: true)
         try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
         let plist: [String: Any] = ["CFBundleIdentifier": identifier, "CFBundleShortVersionString": version,
@@ -26,27 +41,35 @@ struct UpdateFixture {
             try Data("#!/bin/sh\necho \(version)\n".utf8).write(to: binary)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
         }
+        #endif
         return app
     }
 
-    /// A zipped app, as the release workflow makes it.
+    /// A zipped app, as the release workflow makes it (`ditto` on macOS, `tar -a` on Windows).
     func makeArchive(version: String, identifier: String = BreakpointVersion.bundleIdentifier, extraApp: Bool = false,
                      executable: Bool = true) throws -> URL {
         let source = dir.url.appendingPathComponent("source-\(UUID().uuidString.prefix(6))", isDirectory: true)
         try makeApp(in: source, identifier: identifier, version: version, executable: executable)
-        if extraApp { try makeApp(in: source, name: "Other.app", version: version) }
+        if extraApp { try makeApp(in: source, name: Self.otherName, version: version) }
         let zip = dir.url.appendingPathComponent("Breakpoint-\(version)-\(UUID().uuidString.prefix(6)).zip")
         let process = Process()
+        #if os(Windows)
+        let root = ProcessInfo.processInfo.environment["SystemRoot"] ?? "C:\\Windows"
+        process.executableURL = URL(fileURLWithPath: root).appendingPathComponent("System32/tar.exe")
+        process.arguments = ["-a", "-c", "-f", PathDisplay.native(zip), "-C", PathDisplay.native(source)]
+            + (extraApp ? [Self.appName, Self.otherName] : [Self.appName])
+        #else
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
         process.arguments = ["-c", "-k", "--norsrc", "--noextattr"] + (extraApp ? [] : ["--keepParent"])
             + [extraApp ? source.path : source.appendingPathComponent("Breakpoint.app").path, zip.path]
+        #endif
         try process.run()
         process.waitUntilExit()
         return zip
     }
 
     /// The feed entry for `archive`, signed as `signedVersion` (default: `version`).
-    func release(_ version: String, archive: URL, signedVersion: String? = nil, signer: Curve25519.Signing.PrivateKey? = nil) throws -> UpdateRelease {
+    func release(_ version: String, archive: URL, signedVersion: String? = nil, signer: UpdateSigningKey? = nil) throws -> UpdateRelease {
         let data = try Data(contentsOf: archive)
         return UpdateRelease(version: version, notes: "", page: Self.page,
                              archive: URL(string: "https://github.com/estrindavid/breakpoint/releases/download/v\(version)/x.zip"),
@@ -106,7 +129,7 @@ struct UpdateInstallTests {
         defer { f.dir.cleanup() }
         let (_, installer) = try f.installed()
         let zip = try f.makeArchive(version: "0.2.0")
-        let release = try f.release("0.2.0", archive: zip, signer: Curve25519.Signing.PrivateKey())
+        let release = try f.release("0.2.0", archive: zip, signer: UpdateSigningKey())
         #expect(throws: UpdateInstallError.badSignature) { try installer.verify(archive: zip, release: release) }
     }
 
@@ -172,11 +195,11 @@ struct UpdateInstallTests {
         var installer = base
         installer.unpack = { _, _ in unpacked = true }
         let zip = try f.makeArchive(version: "0.2.0")
-        let forged = try f.release("0.2.0", archive: zip, signer: Curve25519.Signing.PrivateKey())
+        let forged = try f.release("0.2.0", archive: zip, signer: UpdateSigningKey())
         #expect(throws: UpdateInstallError.badSignature) { try installer.stage(archive: zip, release: forged) }
         #expect(!unpacked)
         let leftovers = try FileManager.default.contentsOfDirectory(atPath: app.deletingLastPathComponent().path)
-        #expect(leftovers == ["Breakpoint.app"])
+        #expect(leftovers == [UpdateFixture.appName])
     }
 
     @Test func aBundleThatIsNotOursIsRefusedAndCleanedUp() throws {
@@ -193,7 +216,7 @@ struct UpdateInstallTests {
             #expect(throws: expected) { try installer.stage(archive: zip, release: try f.release("0.2.0", archive: zip)) }
         }
         let folder = try FileManager.default.contentsOfDirectory(atPath: app.deletingLastPathComponent().path)
-        #expect(folder == ["Breakpoint.app"], "every refused staging folder is removed")
+        #expect(folder == [UpdateFixture.appName], "every refused staging folder is removed")
     }
 
     @Test func anArchiveWhoseAppIsALinkIsRefused() throws {
@@ -204,17 +227,18 @@ struct UpdateInstallTests {
         let elsewhere = try f.makeApp(in: f.dir.url.appendingPathComponent("elsewhere", isDirectory: true), version: "0.2.0")
         var installer = base
         installer.unpack = { _, folder in
-            try FileManager.default.createSymbolicLink(at: folder.appendingPathComponent("Breakpoint.app"),
+            try FileManager.default.createSymbolicLink(at: folder.appendingPathComponent(UpdateFixture.appName),
                                                        withDestinationURL: elsewhere)
         }
         let zip = try f.makeArchive(version: "0.2.0")
         #expect(throws: UpdateInstallError.wrongContents) {
             try installer.stage(archive: zip, release: try f.release("0.2.0", archive: zip))
         }
-        #expect(try FileManager.default.contentsOfDirectory(atPath: app.deletingLastPathComponent().path) == ["Breakpoint.app"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: app.deletingLastPathComponent().path) == [UpdateFixture.appName])
         #expect(f.version(of: elsewhere) == "0.2.0", "the link's target is left alone")
     }
 
+    #if !os(Windows)
     @Test func aQuarantinedDownloadIsRefused() throws {
         let f = UpdateFixture()
         defer { f.dir.cleanup() }
@@ -225,6 +249,7 @@ struct UpdateInstallTests {
         #expect(setxattr(zip.path, "com.apple.quarantine", value, value.utf8.count, 0, 0) == 0)
         #expect(throws: UpdateInstallError.quarantined) { try installer.stage(archive: zip, release: release) }
     }
+    #endif
 
     // MARK: Swap and rollback
 
@@ -250,7 +275,7 @@ struct UpdateInstallTests {
         let zip = try f.makeArchive(version: "0.2.0")
         let swapped = try installer.swap(try installer.stage(archive: zip, release: try f.release("0.2.0", archive: zip)))
         UpdateInstaller.finish(swapped)
-        #expect(try FileManager.default.contentsOfDirectory(atPath: app.deletingLastPathComponent().path) == ["Breakpoint.app"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: app.deletingLastPathComponent().path) == [UpdateFixture.appName])
         #expect(f.version(of: app) == "0.2.0")
     }
 
@@ -261,7 +286,7 @@ struct UpdateInstallTests {
         // pending-update.json is read back by the relaunch helper; a damaged or hand-edited one
         // must not turn "remove the staging folder" into removing something else.
         let precious = f.dir.url.appendingPathComponent("Documents", isDirectory: true)
-        let other = try f.makeApp(in: precious, name: "Other.app", version: "1.0.0")
+        let other = try f.makeApp(in: precious, name: UpdateFixture.otherName, version: "1.0.0")
         let records = [
             SwappedUpdate(installed: app, backup: other, stagingDirectory: precious),
             SwappedUpdate(installed: app, backup: precious.appendingPathComponent(UpdateInstaller.stagingPrefix + "x/B.app"),
@@ -283,9 +308,9 @@ struct UpdateInstallTests {
         let folder = app.deletingLastPathComponent()
         let leftover = folder.appendingPathComponent(UpdateInstaller.stagingPrefix + "abcd1234", isDirectory: true)
         try f.makeApp(in: leftover, version: "0.0.9")
-        try f.makeApp(in: folder, name: "Other.app", version: "1.0.0")
+        try f.makeApp(in: folder, name: UpdateFixture.otherName, version: "1.0.0")
         UpdateInstaller.cleanUpLeftovers(nextTo: app)
-        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted() == ["Breakpoint.app", "Other.app"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted() == [UpdateFixture.appName, UpdateFixture.otherName].sorted())
     }
 
     // MARK: Where the app lives
@@ -296,6 +321,9 @@ struct UpdateInstallTests {
         let (app, _) = try f.installed()
         #expect(UpdateLocation.blocker(for: app) == nil)
         #expect(UpdateLocation.blocker(for: f.dir.url.appendingPathComponent(".build/debug")) == .notAnApp)
+        #if os(Windows)
+        // NTFS has no permission bits to take away here; the read-only case is macOS's.
+        #else
         #expect(UpdateLocation.blocker(for: URL(fileURLWithPath:
             "/private/var/folders/ab/cd/T/AppTranslocation/1234-5678/d/Breakpoint.app")) == .translocated)
         let folder = app.deletingLastPathComponent()
@@ -310,6 +338,7 @@ struct UpdateInstallTests {
         #expect(throws: UpdateInstallError.blocked(UpdateLocation.blocker(for: app)!)) {
             try installer.stage(archive: zip, release: try f.release("0.2.0", archive: zip))
         }
+        #endif
     }
 
     // MARK: Relaunch

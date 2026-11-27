@@ -1,5 +1,6 @@
 import AppKit
 import BreakpointCore
+import BreakpointRuntime
 
 // Development-only hooks; compiled out of release
 // builds (scripts/build-app.sh builds release).

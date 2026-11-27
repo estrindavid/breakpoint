@@ -141,8 +141,13 @@ public struct UpdateRelease: Codable, Equatable, Hashable, Sendable {
 public enum UpdateFeed {
     /// The repository every release comes from. Download only ever opens pages inside it.
     public static let repository = URL(string: "https://github.com/estrindavid/breakpoint")!
-    /// The feed's file name on each release.
+    /// The feed's file name on each release: one per platform, so each app reads only releases of
+    /// its own archive (installed Macs keep reading `update-feed.json`, as before).
+    #if os(Windows)
+    public static let assetName = "update-feed-windows.json"
+    #else
     public static let assetName = "update-feed.json"
+    #endif
     /// The one address the app ever connects to.
     public static let url = URL(string: "\(repository.absoluteString)/releases/latest/download/\(assetName)")!
     /// Longer notes are cut to this many characters (plus "…").
@@ -150,7 +155,13 @@ public enum UpdateFeed {
     /// A feed larger than this is not read.
     public static let maximumSize = 64 * 1024
     /// An archive larger than this is not downloaded.
+    #if os(Windows)
+    /// Windows: the two executables each carry the Swift runtime and ICU's data (linked in, so
+    /// the CLI copy the hooks call needs nothing else), about 48 MB zipped.
+    public static let maximumArchiveSize = 96 * 1024 * 1024
+    #else
     public static let maximumArchiveSize = 64 * 1024 * 1024
+    #endif
 
     public enum ParseError: Error, Equatable, Sendable {
         /// Not a JSON object, or too large.

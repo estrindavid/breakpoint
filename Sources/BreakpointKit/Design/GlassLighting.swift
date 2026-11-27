@@ -1,4 +1,5 @@
 import SwiftUI
+import BreakpointRuntime
 
 // The hand-built glass's light (SPEC §4.5), for macOS 14 and 15 and every snapshot. macOS 26
 // uses the system Liquid Glass instead (`SystemGlass`). Everything here is still: no animation,

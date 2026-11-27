@@ -1,4 +1,5 @@
 import SwiftUI
+import BreakpointRuntime
 
 /// A drawn desktop that glass surfaces inside `content` blur as if it were behind their window
 /// (`GlassRendering.simulated`). Snapshots and films only: `ImageRenderer` cannot draw

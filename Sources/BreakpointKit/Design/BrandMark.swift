@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import BreakpointCore
+import BreakpointRuntime
 
 /// The gutter-tag mark (SPEC §4.1): a rounded tag pointing right with two small oval eyes, set a
 /// little above centre, on a 24-unit grid (the README's hero draws the same path,
@@ -125,27 +126,11 @@ public struct BrandMarkShape: Shape {
 /// The mark as a view, in one of the states of SPEC §3.7 (plus `.brand` for icons and onboarding).
 /// Draws in the current foreground style; use `.foregroundStyle` to colour it.
 public struct BrandMark: View {
-    public enum Variant: Sendable, CaseIterable {
-        /// Solid tag with the eyes knocked out: the brand mark (icon, onboarding, About).
-        case brand
-        /// Menu bar, idle: outlined tag with the two eyes.
-        case idle
-        /// Menu bar, break due: outlined tag, notch filled (block with the eyes knocked out).
-        case due
-        /// Menu bar, on a break: the whole mark filled (same as `.brand`).
-        case onBreak
-        /// Menu bar, paused: outlined tag with a single pause bar.
-        case paused
-    }
+    /// How the mark is drawn (declared in BreakpointRuntime, where `AppState` uses it).
+    public typealias Variant = MarkVariant
 
-    /// The menu-bar badge layer (§3.7), at the trailing-bottom corner.
-    public enum Badge: Sendable, CaseIterable {
-        case none
-        /// Agent working: small filled dot (the caller animates its opacity at 0.5 Hz).
-        case working
-        /// Agent needs you: small hollow ring, static.
-        case needsYou
-    }
+    /// The menu-bar badge layer (declared in BreakpointRuntime, where `AppState` uses it).
+    public typealias Badge = MarkBadge
 
     private let variant: Variant
     private let badge: Badge

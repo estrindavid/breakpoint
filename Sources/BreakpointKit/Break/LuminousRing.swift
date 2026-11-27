@@ -1,4 +1,5 @@
 import SwiftUI
+import BreakpointRuntime
 
 // SPEC §3.4 (`move` step and pace ring, `walk` ring), §4.6 (completion mark).
 

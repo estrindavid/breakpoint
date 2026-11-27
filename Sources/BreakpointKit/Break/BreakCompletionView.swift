@@ -1,5 +1,6 @@
 import SwiftUI
 import BreakpointCore
+import BreakpointRuntime
 
 // SPEC §3.3 Ending, §4.6 (completion moment).
 

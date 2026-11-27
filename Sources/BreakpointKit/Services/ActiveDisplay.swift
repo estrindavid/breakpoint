@@ -1,4 +1,5 @@
 import AppKit
+import BreakpointRuntime
 
 /// The active display: the `NSScreen` under the pointer (SPEC §3.0, decision 2).
 public enum ActiveDisplay {

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import BreakpointCore
+import BreakpointRuntime
 
 // The popover shortcut recorder (SPEC §3.9
 // General). Listens only to key presses sent to this window (a local monitor, no permission).

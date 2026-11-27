@@ -1,4 +1,5 @@
 import BreakpointCore
+@_exported import BreakpointRuntime
 
 /// SwiftUI declares a `Settings` scene type, which makes `Settings` ambiguous in any file that
 /// imports both SwiftUI and BreakpointCore. A declaration in this module wins over imported ones,

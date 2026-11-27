@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import BreakpointCore
+import BreakpointRuntime
 
 /// A registered global hotkey; pass it back to `unregister`.
 public struct HotKeyToken: Hashable, Sendable {

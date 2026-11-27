@@ -17,7 +17,11 @@ ActivityMonitor ─▶ InputSample / CallSignals / PresenceEvent ───▶│
 ```
 
 - Core is pure: policies take values and return values. The coordinator owns all mutable state
-  and calls them (`Sources/BreakpointApp/AppCoordinator+Loop.swift` shows every call site).
+  and calls them (`Sources/BreakpointRuntime/Coordinator/AppCoordinator+Loop.swift` shows every
+  call site).
+- The coordinator, `AppState` and `AppActions` live in `BreakpointRuntime` and are the same code on
+  macOS and Windows. They reach the system only through `AppPlatform` and `PlatformShell` (below);
+  each app supplies its own.
 - Views read only `AppState` and Core models and express intents only through `AppActions`.
 - Controllers are created once by the coordinator and reconcile their windows in `sync()`.
 
@@ -149,7 +153,44 @@ the coordinator with `(state:actions:…)`.
 | `OnboardingWindowController` (`show`), `OnboardingStep`, `OnboardingView`, `WelcomeStep`, `HowItWorksStep`, `ConnectStep`, `PaceStep`, `DoneStep` | Onboarding/ | `integrations`, `settings` | `install`, `updateSettings`, `completeOnboarding` |
 | `LoginItemControlling` / `LoginItem` (`availability()`, `status`; registers only where `LoginItemAvailability` allows) | Services/LoginItem.swift | — | used by App, General pane, Done step |
 
-## Shared Kit
+## Platform seams (Sources/BreakpointRuntime/Platform)
+
+| Interface | File | Implemented by |
+|---|---|---|
+| `AppPlatform`: the five services, `makeShell`, `quit`, `copyText`, `exportHistory`, `confirm`, `alert`, `open`, `appLocation`, `bundledCLI`, the relaunch helper, `launchDiagnostics` | Platform/AppPlatform.swift | `MacPlatform` (BreakpointApp/MacPlatform.swift), `WindowsPlatform` (BreakpointWindows/WindowsPlatform.swift) |
+| `PlatformShell`: `surfaces`, the status item and popover, Settings, Onboarding, pop-up layout and eviction, `stop`, `registeredHotKeys` | Platform/AppPlatform.swift | `MacShell`, `WindowsShell`, `HeadlessShell` (`--debug-headless`) |
+| `ActivityMonitoring` (+ `diagnosticReport()`), `HeadphoneMotionMonitoring`, `SoundPlaying`, `LoginItemControlling` (+ `availability()`), `UpdateFetching` | Platform/PlatformServices.swift | Kit Services/ on macOS; BreakpointWindows/Services on Windows; the harness's simulated ones |
+| `LaunchOptions`, `DebugOptions` | Platform/AppPlatform.swift | parsed once by each app's entry point |
+| The coordinator's log (`os.Logger` on Apple, `RuntimeLogger` → `PlatformLogSink` elsewhere) | Platform/RuntimeLog.swift | |
+| `ChimeSynth` (the synthesised chime, SPEC §4.7) | Platform/ChimeSynth.swift | both sound players |
+
+## Presentation models (Sources/BreakpointRuntime/Presentation)
+
+What the popover and the settings sidebar say, derived from `AppState` once for both apps.
+
+| Interface | File | Drawn by |
+|---|---|---|
+| `PopoverModel` (`status`, `whyNotNow`, `windDownLine`, `agentRows`, `footer`, `lengthLabel`, `showsConnectPrompt`) | PopoverModel.swift | `PopoverView` (macOS), `FlyoutView` (Windows) |
+| `SettingsPane` (sidebar order, groups, icons), `SettingsNavigator.pendingPane` | SettingsPane.swift | both settings windows |
+| `BreakKind.symbolName`, `MenuBarGlyphs` (SF Symbol names) | Symbols.swift | SwiftUI `Image(systemName:)`; Windows `Glyphs.draw` |
+
+## Windows (Sources/BreakpointWindows, Sources/CBreakpointWin32)
+
+| Interface | File | Notes |
+|---|---|---|
+| `MessageLoop` | Platform/MessageLoop.swift | the UI thread: Win32 messages, `DispatchQueue.main`, Foundation timers |
+| `Window`, `DrawnWindow`, `FrameClock`, `Tween` | Platform/Window.swift, Surfaces/DrawnWindow.swift | one DirectComposition swap chain per window; redraw on change, 60 Hz only while something moves |
+| `Canvas`, `Controls`, `NativeMenu`, `HotKeys`, `Monitors`, `SystemEvents`, `Appearance` | Platform/ | drawing, immediate-mode controls, menus, shortcuts, displays, system broadcasts, backdrops |
+| `Theme`, `Glyphs`, `BrandMark`, `AppIcon`, `Chrome`, `KindBadge`, `ProgressRing`, `StatusDot`, `Chip`, `SourceTile`, `HintLine` | Design/ | the same values as Kit's `Theme` |
+| `TrayController` (+ `TrayMark`, `TrayIcon`), `FlyoutView` | Surfaces/Tray/ | SPEC §3.7, §3.8 |
+| `NudgeController`, `CountdownChipController`, `CardsController`, `PopupStack` | Surfaces/Popups/, Surfaces/PopupStack.swift | SPEC §3.0–3.2, §3.5, §3.6 |
+| `OverlayController` | Surfaces/Overlay/ | SPEC §3.3, §3.4 |
+| `SettingsController`, `OnboardingController`, `TourCoachController` | Surfaces/Settings/, Onboarding/, Tour/ | SPEC §3.9, §3.10, §3.12 |
+| `Snapshot`, `SnapshotCatalogue` (`Breakpoint.exe --debug-snapshots DIR`) | Surfaces/Snapshot*.swift | every surface offscreen to PNG |
+| `WindowsActivityMonitor`, `WindowsSoundPlayer`, `WindowsLoginItem`, `WindowsUpdateFetcher` | Services/ | signals without a hook (docs/WINDOWS.md) |
+| C API: surfaces, shapes, text, icons, PNG, sessions, power, WinHTTP, the notification area | CBreakpointWin32/include/*.h | the only C++ in the project |
+
+## Shared app state (Sources/BreakpointRuntime/State)
 
 | Interface | File |
 |---|---|
@@ -157,6 +198,11 @@ the coordinator with `(state:actions:…)`.
 | `MenuBarState`, `MenuBarMark`, `StatusState`, `NudgeState`, `NudgePhase`, `ActiveBreakState` (`detail`: walk idea; `completion`: the closing moment), `BreakCompletionState`, `AgentChipState`, `RoutineStepState`, `CardState`, `CardContent`, `ResumeCardContent`, `ResumeItem`, `AwayNoteContent`, `ToastContent`, `WindDownCardContent`, `UpdateCardContent`, `UpdateState`, `UpdatePhase`, `UpdateInstallStep` (State/UpdateState.swift), `PopupPriority`, `IntegrationRowState` (`installState`, `canRemove`: outdated and edited installs offer Remove), `TourPresentation` | State/StateTypes.swift |
 | `AppActions` (SPEC §7.2 + additions below), `SoundID` | State/AppActions.swift |
 | `SurfaceController` | State/SurfaceController.swift |
+
+## Shared Kit (macOS)
+
+| Interface | File |
+|---|---|
 | Design system: `Theme` (Colors, Tone, TextStep, Typography, Spacing, Radius, Layout, Glass, Backdrop), `Theme.Motion`, `DesignTraits`, `DesignOverrides`, `GlassRendering`, `GlassStage`, `GlassPanelBackground`, `GlassCard`, `GlassCapsule`, `VisualEffectBackground`, `BrandMark`, `BrandMarkShape`, `BrandMarkGlyph`, `PillButton`, `PillButtonStyle`, `Keycap`, `KeyHint`, `KindBadge`, `StatusDot`, `Chip`, `AgentChip`, `Hairline`, `HoverCloseButton`, `ProgressRing`, `RollingNumber`, `SectionHeader`, `SettingsSection`, `SettingsDivider`, `SettingRow`, `SentenceRow`, `SidebarTile`, `PresetCard`, `ToastShell`, `TimeRimTimeline` / `TimeRimSource` (`.timeRim`, `.capsuleTimeRim`) | Design/ |
 
 ### `AppActions` additions beyond SPEC §7.2
@@ -184,7 +230,11 @@ the coordinator with `(state:actions:…)`.
 | `UpdateInstaller`, `UpdateLocation`, `StagedUpdate`, `SwappedUpdate` | Updates/UpdateInstaller.swift | App |
 | `UpdateRelauncher`, `PendingUpdate` | Updates/UpdateRelauncher.swift | App, CLI (`update-relaunch`) |
 
-## The app (Sources/BreakpointApp)
+## The coordinator (Sources/BreakpointRuntime/Coordinator)
+
+The macOS app (`Sources/BreakpointApp`: `AppDelegate`, `MacPlatform`) and the Windows app
+(`Sources/BreakpointWinApp/main.swift`, `WindowsPlatform`) each create one `AppCoordinator` with
+their platform; everything below is shared.
 
 | Piece | File | Notes |
 |---|---|---|

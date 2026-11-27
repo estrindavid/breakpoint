@@ -1,5 +1,6 @@
 import SwiftUI
 import BreakpointCore
+import BreakpointRuntime
 
 /// The single-line glass capsule used by the away note and toasts (SPEC §3.5): 44 pt high,
 /// optional 32 pt kind badge inset 6 pt (concentric with the capsule), 13 pt text, optional

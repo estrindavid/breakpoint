@@ -16,7 +16,7 @@ public struct JSONFile<Value: Codable>: Sendable {
     /// or decoded.
     public func read() throws -> Value? {
         guard exists else { return nil }
-        let data = try Data(contentsOf: url)
+        let data = try SafeFile.read(url)
         return try JSONFile.decoder.decode(Value.self, from: data)
     }
 
@@ -25,7 +25,7 @@ public struct JSONFile<Value: Codable>: Sendable {
         let data = try JSONFile.encoder.encode(value)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
-        try data.write(to: url, options: [.atomic])
+        try SafeFile.writeAtomically(data, to: url)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 

@@ -173,7 +173,7 @@ struct ShellInstallerTests {
         return (process.terminationStatus, String(decoding: output, as: UTF8.self))
     }
 
-    @Test func snippetsPassShellSyntaxChecks() throws {
+    @Test(.disabled(if: BreakpointPlatform.isWindows, "zsh and bash are macOS shells here")) func snippetsPassShellSyntaxChecks() throws {
         let home = FakeHome()
         defer { home.cleanup() }
         home.write("bp.zsh", ShellSnippets.zsh)
@@ -221,7 +221,7 @@ struct ShellInstallerTests {
     /// The user's own PROMPT_COMMAND must keep working after the snippet joins it, whatever it ends
     /// with (`history -a;` is a common idiom; a trailing `;`, `&` or newline used to make every
     /// prompt print a syntax error and stop the user's command from running).
-    @Test(arguments: ["echo PC-RAN;", "echo PC-RAN ; ", "echo PC-RAN\n", "echo PC-RAN", "echo PC-RAN &", ""])
+    @Test(.disabled(if: BreakpointPlatform.isWindows, "zsh and bash are macOS shells here"), arguments: ["echo PC-RAN;", "echo PC-RAN ; ", "echo PC-RAN\n", "echo PC-RAN", "echo PC-RAN &", ""])
     func bashSnippetKeepsTheUsersPromptCommandWorking(existing: String) throws {
         let home = FakeHome()
         defer { home.cleanup() }
@@ -254,7 +254,7 @@ struct ShellInstallerTests {
         return home.read("calls") ?? ""
     }
 
-    @Test func zshSnippetHooksFireInAnInteractiveShell() throws {
+    @Test(.disabled(if: BreakpointPlatform.isWindows, "zsh and bash are macOS shells here")) func zshSnippetHooksFireInAnInteractiveShell() throws {
         let home = FakeHome()
         defer { home.cleanup() }
         home.write("bp.zsh", ShellSnippets.zsh)
@@ -298,7 +298,7 @@ struct ShellInstallerTests {
         }
     }
 
-    @Test func commandNameExtractionInBothShells() throws {
+    @Test(.disabled(if: BreakpointPlatform.isWindows, "zsh and bash are macOS shells here")) func commandNameExtractionInBothShells() throws {
         let home = FakeHome()
         defer { home.cleanup() }
         home.write("name.sh", ShellSnippets.commandName + "\n")

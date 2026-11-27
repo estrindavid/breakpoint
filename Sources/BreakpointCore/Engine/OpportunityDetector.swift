@@ -85,7 +85,17 @@ public enum CommandDenylist {
 
     /// Whether `command` (a first word, possibly a path) is interactive.
     public static func contains(_ command: String) -> Bool {
+        #if os(Windows)
+        // Windows: names are case-insensitive and may carry `.exe`; its own shells and REPLs too.
+        var name = PathDisplay.lastComponent(command).lowercased()
+        if name.hasSuffix(".exe") { name.removeLast(4) }
+        return names.contains(name) || windowsNames.contains(name)
+        #else
         let name = (command as NSString).lastPathComponent
         return names.contains(name)
+        #endif
     }
+
+    /// Interactive programs particular to Windows (shells, WSL, the Python launcher).
+    public static let windowsNames: Set<String> = ["pwsh", "powershell", "cmd", "wsl", "py", "bash"]
 }
