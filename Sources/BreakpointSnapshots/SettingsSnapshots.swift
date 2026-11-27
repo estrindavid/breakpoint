@@ -1,10 +1,11 @@
+import AppKit
 import SwiftUI
 import BreakpointCore
 import BreakpointKit
 
 // Every settings pane in light and dark: the whole
-// window at its default size (as first opened), each pane's full length, the Integrations pane with
-// tools in every status, the options sheets and other states.
+// window at its default size (as first opened) and scrolled part-way down, each pane's full length,
+// the Integrations pane with tools in every status, the options sheets and other states.
 
 enum SettingsSnapshots {
     @MainActor static var all: [Snapshot] {
@@ -13,8 +14,15 @@ enum SettingsSnapshots {
             // The real window at its default size (what you see when it opens).
             list.append(Snapshot("settings/window-\(pane.rawValue)", size: Theme.Layout.settingsDefaultSize,
                                  scenes: SnapshotScene.lightAndDark, renderer: .window, padding: 0) {
-                SettingsRootView(state: SettingsStates.standard(), actions: .noop, selection: SettingsSelection(pane: pane))
-                    .loginItemStatusPreview(.enabled)
+                SettingsWindowContent(pane: pane)
+            })
+            // Scrolled 240 pt down (or to the end, if the pane is shorter): rows pass under the
+            // pane header. General, the longest, also in Reduce Transparency and Increase Contrast.
+            list.append(Snapshot("settings/window-\(pane.rawValue)-scrolled", size: Theme.Layout.settingsDefaultSize,
+                                 scenes: SnapshotScene.lightAndDark,
+                                 variants: pane == .general ? SnapshotVariant.accessibility : [.standard],
+                                 renderer: .window, padding: 0, scrollOffset: 240) {
+                SettingsWindowContent(pane: pane)
             })
             // The pane's whole length, as if scrolled through.
             list.append(Snapshot("settings/\(pane.rawValue)-full", size: CGSize(width: 660, height: SettingsStates.fullHeight(pane)),
@@ -28,8 +36,11 @@ enum SettingsSnapshots {
         list += [
             Snapshot("settings/window-minimum-size", size: Theme.Layout.settingsMinimumSize, scenes: SnapshotScene.lightAndDark,
                      renderer: .window, padding: 0) {
-                SettingsRootView(state: SettingsStates.standard(), actions: .noop, selection: SettingsSelection(pane: .general))
-                    .loginItemStatusPreview(.enabled)
+                SettingsWindowContent(pane: .general)
+            },
+            Snapshot("settings/window-minimum-size-about-scrolled", size: Theme.Layout.settingsMinimumSize,
+                     scenes: SnapshotScene.lightAndDark, renderer: .window, padding: 0, scrollOffset: 240) {
+                SettingsWindowContent(pane: .about)
             },
             Snapshot("settings/integrations-every-status", size: CGSize(width: 660, height: 900), scenes: SnapshotScene.lightAndDark,
                      renderer: .window, padding: 24) {
@@ -134,6 +145,39 @@ enum SettingsSnapshots {
         ]
         return list
     }
+}
+
+/// The settings window's content as the real window lays it out: the snapshot window has no title
+/// bar, so a clear inset of the real title bar's height stands in for it. The root view extends
+/// under the title bar as in the window, and a scroll view that starts inside it is stretched up
+/// to the top, as in the window.
+struct SettingsWindowContent: View {
+    let pane: SettingsPane
+
+    var body: some View {
+        SettingsRootView(state: SettingsStates.standard(), actions: .noop, selection: SettingsSelection(pane: pane))
+            .loginItemStatusPreview(.enabled)
+            .safeAreaInset(edge: .top, spacing: 0) { Color.clear.frame(height: Self.titlebarHeight) }
+    }
+
+    /// The title bar of a window made as `SettingsWindowController` makes it (transparent, full-size
+    /// content, empty unified toolbar), measured on this Mac: 52 pt on macOS 14 and 15, taller on
+    /// macOS 26. The window is never shown.
+    @MainActor static let titlebarHeight: CGFloat = {
+        let size = Theme.Layout.settingsDefaultSize
+        let window = NSWindow(contentRect: CGRect(origin: .zero, size: size),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: true)
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        let toolbar = NSToolbar(identifier: "BreakpointSettingsSnapshot")
+        toolbar.showsBaselineSeparator = false
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        return max(0, window.frame.height - window.contentLayoutRect.height)
+    }()
 }
 
 @MainActor

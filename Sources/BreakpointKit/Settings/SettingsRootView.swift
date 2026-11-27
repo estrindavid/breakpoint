@@ -19,7 +19,8 @@ public struct SettingsRootView: View {
     }
 
     static let groups = ["Breaks", "Connections", "You"]
-    /// Height of the window's title bar with its (empty) unified toolbar.
+    /// Height of the pane header: the window's title bar with its (empty) unified toolbar on
+    /// macOS 14 and 15 (taller on macOS 26).
     static let titlebarHeight: CGFloat = 52
 
     public var body: some View {
@@ -57,29 +58,56 @@ public struct SettingsRootView: View {
         .accessibilityLabel("Settings sections")
     }
 
+    /// The pane scrolls under its header. The header is pinned over the scroll view's top edge on
+    /// an opaque window-coloured backing with a hairline, so rows disappear beneath it cleanly.
+    /// (On macOS 26 the title bar is taller than the header, and SwiftUI stretches a scroll view
+    /// that starts inside the title bar up to the window's top; a header without a backing then
+    /// had the scrolled rows drawn through it.)
     private var detail: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                SettingsPaneView(pane: selection.pane, state: state, actions: actions)
+                    .frame(maxWidth: 640, alignment: .leading)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 20)
+                    .padding(.bottom, 32)
+                    .frame(maxWidth: .infinity)
+                    .id(selection.pane)
+            }
+            .onChange(of: selection.pane) { _, pane in proxy.scrollTo(pane, anchor: .top) }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                PaneHeader(pane: selection.pane, height: Self.titlebarHeight)
+            }
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+/// The pane's icon and title above its content, on the window's own (opaque) colour, with a
+/// hairline under it: a stronger one under Increase Contrast. Opaque, so Reduce Transparency
+/// changes nothing here.
+private struct PaneHeader: View {
+    let pane: SettingsPane
+    let height: CGFloat
+    private let traits = DesignTraits()
+
+    var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                SidebarTile(systemImage: selection.pane.systemImage, index: selection.pane.index)
-                Text(selection.pane.title)
+                SidebarTile(systemImage: pane.systemImage, index: pane.index)
+                Text(pane.title)
                     .font(Theme.Typography.paneTitle)
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
             }
             .padding(.horizontal, 24)
-            .frame(height: Self.titlebarHeight)
-            Divider()
-            ScrollViewReader { proxy in
-                ScrollView {
-                    SettingsPaneView(pane: selection.pane, state: state, actions: actions)
-                        .frame(maxWidth: 640, alignment: .leading)
-                        .padding(.horizontal, 24)
-                        .padding(.top, 20)
-                        .padding(.bottom, 32)
-                        .frame(maxWidth: .infinity)
-                        .id(selection.pane)
-                }
-                .onChange(of: selection.pane) { _, pane in proxy.scrollTo(pane, anchor: .top) }
+            .frame(height: height)
+            if traits.increaseContrast {
+                Rectangle()
+                    .fill(Color.primary.opacity(Theme.TextStep.hairline.opacity))
+                    .frame(height: 1)
+            } else {
+                Divider()
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
