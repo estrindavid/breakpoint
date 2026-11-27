@@ -40,6 +40,9 @@ concurrency:
 jobs:
   windows:
     name: Windows build
+    # Builds and tests only: it never publishes, so it cannot write to the repository.
+    permissions:
+      contents: read
     runs-on: windows-2025
     timeout-minutes: 60
     defaults:
