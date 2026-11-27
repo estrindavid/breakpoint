@@ -6,14 +6,19 @@ import Testing
 struct PathsTests {
     let paths = BreakpointPaths(home: URL(fileURLWithPath: "/Users/tester", isDirectory: true))
 
+    /// `/Users/tester` plus the platform's data folder (`Library/Application Support/Breakpoint`,
+    /// or `AppData/Local/Breakpoint` on Windows).
+    var data: String { "/Users/tester/" + BreakpointPaths.appSupportRelativePath }
+
     @Test func everyPathDerivesFromTheInjectedHome() {
-        #expect(paths.appSupport.path == "/Users/tester/Library/Application Support/Breakpoint")
+        #expect(paths.appSupport.path == data)
         #expect(paths.settingsFile.path.hasSuffix("Breakpoint/settings.json"))
         #expect(paths.historyFile.lastPathComponent == "history.jsonl")
         #expect(paths.sessionsFile.lastPathComponent == "sessions.json")
         #expect(paths.watchdogLog.lastPathComponent == "watchdog.log")
-        #expect(paths.backupsDirectory.path == "/Users/tester/Library/Application Support/Breakpoint/backups")
-        #expect(paths.cliCopy.path == "/Users/tester/.breakpoint/bin/breakpoint")
+        #expect(paths.backupsDirectory.path == data + "/backups")
+        #expect(paths.cliCopy.path == "/Users/tester/.breakpoint/bin/" + BreakpointPaths.cliFileName)
+        #expect(paths.shellPowerShellSnippet.path == "/Users/tester/.breakpoint/shell/breakpoint.ps1")
         #expect(paths.shellZshSnippet.path == "/Users/tester/.breakpoint/shell/breakpoint.zsh")
         #expect(paths.shellBashSnippet.path == "/Users/tester/.breakpoint/shell/breakpoint.bash")
         #expect(paths.fallbackSocketFile.path == "/Users/tester/.breakpoint/run/bp.sock")
@@ -32,7 +37,7 @@ struct PathsTests {
     @Test func socketUsesPreferredPathWhenShort() {
         let socket = SocketPath(paths: paths)
         #expect(!socket.isFallback)
-        #expect(socket.path == "/Users/tester/Library/Application Support/Breakpoint/breakpoint.sock")
+        #expect(socket.path == data + "/breakpoint.sock")
     }
 
     @Test func socketFallsBackWhenPathIsTooLong() {

@@ -46,7 +46,7 @@ public final class SettingsStore {
             return .defaults
         }
         do {
-            let data = try Data(contentsOf: fileURL)
+            let data = try SafeFile.read(fileURL)
             guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 throw CocoaError(.fileReadCorruptFile)
             }
@@ -82,7 +82,7 @@ public final class SettingsStore {
                                               options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
-        try data.write(to: fileURL, options: .atomic)
+        try SafeFile.writeAtomically(data, to: fileURL)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
 
         let previous = current ?? .defaults

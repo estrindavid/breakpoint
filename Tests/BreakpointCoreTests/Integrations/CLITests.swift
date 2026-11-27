@@ -8,7 +8,7 @@ import Testing
 enum CLI {
     static let packageRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-    static let binary = packageRoot.appendingPathComponent(".build/debug/breakpoint")
+    static let binary = packageRoot.appendingPathComponent(".build/debug/" + BreakpointPaths.cliFileName)
 
     /// Fails the test when the binary is missing or older than the sources it is built from.
     static func requireFreshBinary() throws {
@@ -48,11 +48,13 @@ enum CLI {
     static func run(_ arguments: [String], home: URL, stdin: Stdin = .devNull, extraEnvironment: [String: String] = [:],
                     executable: URL = binary) throws -> Result {
         // The child may exit before reading all of stdin (the 1 MB cap); writing then must not kill us.
+        #if !os(Windows)
         signal(SIGPIPE, SIG_IGN)
+        #endif
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
-        var environment = ["HOME": home.path, "BREAKPOINT_HOME": home.path, "PATH": "/usr/bin:/bin"]
+        var environment = CLI.minimalEnvironment(home: home)
         environment.merge(extraEnvironment) { $1 }
         process.environment = environment
         process.currentDirectoryURL = home
@@ -83,11 +85,16 @@ enum CLI {
             keepOpen = pipe
             process.standardInput = pipe
         case .terminal:
+            #if os(Windows)
+            // A console as stdin: the CLI's own console, which `emit` must refuse to read.
+            process.standardInput = FileHandle.standardInput
+            #else
             var master: Int32 = 0
             var slave: Int32 = 0
             guard openpty(&master, &slave, nil, nil, nil) == 0 else { throw IntegrationError.io("openpty failed") }
             terminal = (master, slave)
             process.standardInput = FileHandle(fileDescriptor: slave, closeOnDealloc: false)
+            #endif
         }
         let start = Date()
         try process.run()
@@ -96,9 +103,41 @@ enum CLI {
         process.waitUntilExit()
         let seconds = Date().timeIntervalSince(start)
         try? keepOpen?.fileHandleForWriting.close()
-        if let (master, slave) = terminal { close(master); close(slave) }
+        #if !os(Windows)
+        if let (master, slave) = terminal { UnixSocket.close(master); UnixSocket.close(slave) }
+        #else
+        _ = terminal
+        #endif
         return Result(status: process.terminationStatus, stdout: String(decoding: stdoutData, as: UTF8.self),
                       stderr: String(decoding: stderrData, as: UTF8.self), seconds: seconds)
+    }
+
+    /// The environment hooks get: a temporary home and little else. Windows also needs
+    /// `SystemRoot` (Winsock does not start without it) and System32 on the path.
+    static func minimalEnvironment(home: URL) -> [String: String] {
+        #if os(Windows)
+        let system = ProcessInfo.processInfo.environment
+        return ["HOME": home.path, "USERPROFILE": PathDisplay.native(home), "BREAKPOINT_HOME": PathDisplay.native(home),
+                "SystemRoot": system["SystemRoot"] ?? "C:\\Windows",
+                // Without it, the shell's folder lookups create a literal "%SystemDrive%" folder.
+                "SystemDrive": system["SystemDrive"] ?? "C:",
+                // A debug build loads the Swift runtime's DLLs from the path (release builds are static).
+                "PATH": system["Path"] ?? system["PATH"] ?? ((system["SystemRoot"] ?? "C:\\Windows") + "\\System32")]
+        #else
+        return ["HOME": home.path, "BREAKPOINT_HOME": home.path, "PATH": "/usr/bin:/bin"]
+        #endif
+    }
+
+    /// The shell a tool runs hook commands with: `/bin/sh -c` on macOS; Windows PowerShell
+    /// `-NoProfile -NonInteractive -Command` on Windows.
+    static func shellArguments(_ command: String) -> (URL, [String]) {
+        #if os(Windows)
+        let root = ProcessInfo.processInfo.environment["SystemRoot"] ?? "C:\\Windows"
+        return (URL(fileURLWithPath: root).appendingPathComponent("System32/WindowsPowerShell/v1.0/powershell.exe"),
+                ["-NoProfile", "-NonInteractive", "-Command", command])
+        #else
+        return (URL(fileURLWithPath: "/bin/sh"), ["-c", command])
+        #endif
     }
 
     /// Asserts the `emit` contract: silent, exit 0.
@@ -112,20 +151,34 @@ enum CLI {
 @Suite("breakpoint emit (subprocess)", .serialized)
 struct EmitSubprocessTests {
     /// Each tool's hook as installed (kind, source) with a representative payload.
-    static let hookCases: [(kind: AgentEventKind, source: AgentSource, payload: String, check: @Sendable (AgentEvent) -> Bool)] = [
-        (.sessionStarted, .claudeCode, Payloads.claudeSessionStart, { $0.source == .claudeCode && $0.sessionID == "abc123" }),
-        (.agentStarted, .claudeCode, Payloads.claudePrompt, { $0.title == "Write a function to calculate the factorial of a number" && $0.cwd == "/Users/me/code/app" }),
-        (.agentNeedsUser, .claudeCode, Payloads.claudeNotification, { $0.detail == "permission_prompt" }),
-        (.agentFinished, .claudeCode, Payloads.claudeStopFailure, { $0.detail == "error" }),
-        (.agentStarted, .cursor, Payloads.cursorPrompt, { $0.source == .cursor && $0.via == nil && $0.sessionID == "conv-1" }),
-        (.agentStarted, .claudeCode, Payloads.cursorRelayedPrompt, { $0.source == .cursor && $0.via == "claude-code-hooks" }),
-        (.agentFinished, .cursor, Payloads.cursorStop, { $0.detail == "aborted" }),
-        (.agentStarted, .codex, Payloads.codexPrompt, { $0.sessionID == "thr_123" && $0.cwd == "/workspace" }),
-        (.sessionEnded, .codex, Payloads.codexSessionEnd, { $0.kind == .sessionEnded }),
-        (.agentStarted, .copilot, Payloads.copilotPrompt, { $0.sessionID == "cp-1" }),
-        (.agentNeedsUser, .copilot, Payloads.copilotNotification, { $0.detail == "permission_prompt" }),
-        (.agentStarted, .gemini, Payloads.geminiBeforeAgent, { $0.sessionID == "g-1" }),
-        (.agentFinished, .gemini, Payloads.geminiNoSession, { $0.sessionID == "gemini:/Users/me/code/ml" }),
+    /// One tool's hook as installed, with a representative payload and what must arrive.
+    struct HookCase: Sendable {
+        let kind: AgentEventKind
+        let source: AgentSource
+        let payload: String
+        let check: @Sendable (AgentEvent) -> Bool
+        init(_ kind: AgentEventKind, _ source: AgentSource, _ payload: String, _ check: @escaping @Sendable (AgentEvent) -> Bool) {
+            self.kind = kind
+            self.source = source
+            self.payload = payload
+            self.check = check
+        }
+    }
+
+    static let hookCases: [HookCase] = [
+        HookCase(.sessionStarted, .claudeCode, Payloads.claudeSessionStart, { $0.source == .claudeCode && $0.sessionID == "abc123" }),
+        HookCase(.agentStarted, .claudeCode, Payloads.claudePrompt, { $0.title == "Write a function to calculate the factorial of a number" && $0.cwd == "/Users/me/code/app" }),
+        HookCase(.agentNeedsUser, .claudeCode, Payloads.claudeNotification, { $0.detail == "permission_prompt" }),
+        HookCase(.agentFinished, .claudeCode, Payloads.claudeStopFailure, { $0.detail == "error" }),
+        HookCase(.agentStarted, .cursor, Payloads.cursorPrompt, { $0.source == .cursor && $0.via == nil && $0.sessionID == "conv-1" }),
+        HookCase(.agentStarted, .claudeCode, Payloads.cursorRelayedPrompt, { $0.source == .cursor && $0.via == "claude-code-hooks" }),
+        HookCase(.agentFinished, .cursor, Payloads.cursorStop, { $0.detail == "aborted" }),
+        HookCase(.agentStarted, .codex, Payloads.codexPrompt, { $0.sessionID == "thr_123" && $0.cwd == "/workspace" }),
+        HookCase(.sessionEnded, .codex, Payloads.codexSessionEnd, { $0.kind == .sessionEnded }),
+        HookCase(.agentStarted, .copilot, Payloads.copilotPrompt, { $0.sessionID == "cp-1" }),
+        HookCase(.agentNeedsUser, .copilot, Payloads.copilotNotification, { $0.detail == "permission_prompt" }),
+        HookCase(.agentStarted, .gemini, Payloads.geminiBeforeAgent, { $0.sessionID == "g-1" }),
+        HookCase(.agentFinished, .gemini, Payloads.geminiNoSession, { $0.sessionID == "gemini:/Users/me/code/ml" }),
     ]
 
     @Test func everyToolsPayloadArrivesExactlyOnce() throws {
@@ -139,7 +192,10 @@ struct EmitSubprocessTests {
             #expect(waitUntil { f.inbox.count == index + 1 }, "\(hook.source) \(hook.kind)")
             let event = try #require(f.inbox.events.last)
             #expect(event.kind == hook.kind)
-            #expect(hook.check(event), "\(hook.source) \(hook.kind): \(event)")
+            // Called outside `#expect`: the macro's thunk for a closure in a tuple crashes the
+            // Windows compiler (Swift 6.4).
+            let matches = hook.check(event)
+            #expect(matches, "\(hook.source) \(hook.kind): \(event)")
         }
         usleep(100_000)
         #expect(f.inbox.count == Self.hookCases.count)
@@ -189,10 +245,16 @@ struct EmitSubprocessTests {
         let open = try CLI.run(["emit", "agentStarted", "--source", "codex", "--session", "o", "--stdin-json"], home: f.dir.url, stdin: .leftOpen)
         CLI.expectSilentSuccess(open, "stdin left open")
         #expect(open.seconds < 1.0, "took \(open.seconds)")
+        #if os(Windows)
+        // A test cannot hand the child a console of its own; the console check is the same
+        // GetFileType call as for a pipe (Console.readStdin).
+        #expect(waitUntil { f.inbox.count == 1 })
+        #else
         let tty = try CLI.run(["emit", "agentStarted", "--source", "codex", "--session", "t", "--stdin-json"], home: f.dir.url, stdin: .terminal)
         CLI.expectSilentSuccess(tty, "terminal")
         #expect(tty.seconds < 0.2, "took \(tty.seconds)")
         #expect(waitUntil { f.inbox.count == 2 })
+        #endif
     }
 
     @Test func noAppRunningOrAStaleSocket() throws {
@@ -209,13 +271,13 @@ struct EmitSubprocessTests {
         try FileManager.default.createDirectory(at: socket.directory, withIntermediateDirectories: true)
         let fd = try #require(UnixSocket.makeSocket())
         #expect(UnixSocket.bind(fd, UnixSocket.address(socket.path)!) == 0)
-        close(fd)
+        UnixSocket.close(fd)
         let stale = try CLI.run(arguments, home: dir.url, stdin: .data(Data(Payloads.claudePrompt.utf8)))
         CLI.expectSilentSuccess(stale, "stale socket")
         #expect(stale.seconds < 0.5)
 
         // Something that is not a socket at all.
-        unlink(socket.path)
+        try? FileManager.default.removeItem(atPath: socket.path)
         try Data("x".utf8).write(to: socket.url)
         CLI.expectSilentSuccess(try CLI.run(arguments, home: dir.url, stdin: .devNull), "not a socket")
     }
@@ -229,9 +291,9 @@ struct EmitSubprocessTests {
         let socket = SocketPath(paths: dir.paths)
         try FileManager.default.createDirectory(at: socket.directory, withIntermediateDirectories: true)
         let fd = try #require(UnixSocket.makeSocket())
-        defer { close(fd) }
+        defer { UnixSocket.close(fd) }
         #expect(UnixSocket.bind(fd, UnixSocket.address(socket.path)!) == 0)
-        #expect(listen(fd, 1) == 0)
+        #expect(UnixSocket.listen(fd, 1) == 0)
         // A payload larger than the socket buffer, so a connection that is accepted by the kernel
         // but never read cannot take the whole line either.
         let big = "{\"session_id\":\"h\",\"prompt\":\"" + String(repeating: "x", count: 60_000) + "\"}"
@@ -300,15 +362,18 @@ struct EmitSubprocessTests {
         try CLI.requireFreshBinary()
         let f = try ServerFixture()
         defer { f.tearDown() }
-        let command = HookCommand.shell(.agentStarted, source: .claudeCode)
-        // Without the CLI copy: a silent no-op.
-        let missing = try CLI.run(["-c", command], home: f.dir.url, stdin: .data(Data(Payloads.claudePrompt.utf8)),
-                                  executable: URL(fileURLWithPath: "/bin/sh"))
+        let command = HookCommand.shell(.agentStarted, source: .claudeCode, paths: f.dir.paths)
+        let (shell, arguments) = CLI.shellArguments(command)
+        #if !os(Windows)
+        // Without the CLI copy: a silent no-op. (Windows has no portable wrapper for that: SPEC §5.2.)
+        let missing = try CLI.run(arguments, home: f.dir.url, stdin: .data(Data(Payloads.claudePrompt.utf8)),
+                                  executable: shell)
         CLI.expectSilentSuccess(missing, "hook without CLI")
+        #endif
         // With the copy that `install` makes.
         try CLIInstaller(paths: f.dir.paths, bundledCLI: CLI.binary).install()
-        let present = try CLI.run(["-c", command], home: f.dir.url, stdin: .data(Data(Payloads.claudePrompt.utf8)),
-                                  executable: URL(fileURLWithPath: "/bin/sh"))
+        let present = try CLI.run(arguments, home: f.dir.url, stdin: .data(Data(Payloads.claudePrompt.utf8)),
+                                  executable: shell)
         CLI.expectSilentSuccess(present, "hook with CLI")
         #expect(waitUntil { f.inbox.count == 1 })
         #expect(f.inbox.events.first?.kind == .agentStarted)
@@ -320,31 +385,48 @@ struct EmitSubprocessTests {
         try CLI.requireFreshBinary()
         let f = try ServerFixture()
         defer { f.tearDown() }
-        let environment = ["BREAKPOINT_HOME": f.dir.url.path, "PATH": "/usr/bin:/bin", "CURSOR_VERSION": "1"]
-        func runChecks() {
-            for id in IntegrationID.allCases {
+        var environment = CLI.minimalEnvironment(home: f.dir.url)
+        environment["HOME"] = nil
+        environment["CURSOR_VERSION"] = "1"
+        func runChecks(installed: Bool, only ids: [IntegrationID] = IntegrationID.allCases) {
+            for id in ids {
                 let process = InstallCheck.hookProcess(for: id, paths: f.dir.paths, environment: environment)
                 #expect(process.environment?["HOME"] == f.dir.url.path)
                 try? process.run()
                 process.waitUntilExit()
-                #expect(process.terminationStatus == 0, "\(id.rawValue)")
+                // Windows has no silent wrapper for a missing CLI copy (SPEC §5.2): only check after install.
+                if installed || !BreakpointPlatform.isWindows {
+                    #expect(process.terminationStatus == 0, "\(id.rawValue)")
+                }
             }
         }
-        // No CLI copy yet: the hook form is a silent no-op, so nothing arrives.
-        runChecks()
+        // No CLI copy yet: nothing arrives.
+        runChecks(installed: false)
         Thread.sleep(forTimeInterval: 0.3)
         #expect(f.inbox.count == 0)
         #expect(!InstallCheck.cliRuns(paths: f.dir.paths))
 
         try CLIInstaller(paths: f.dir.paths, bundledCLI: CLI.binary).install()
         #expect(InstallCheck.cliRuns(paths: f.dir.paths))
-        runChecks()
+        runChecks(installed: true)
+        #if os(Windows)
+        // `emit` gives up after its 100 ms budget (SPEC §5.3); on a Windows runner saturated by the
+        // parallel suite a PowerShell-started hook can miss it, as the app's own check would then
+        // say. Each tool whose event did not arrive is checked once more, as Install does again.
+        if !waitUntil({ f.inbox.count == IntegrationID.allCases.count }) {
+            let arrived = Set(f.inbox.events.map(\.source))
+            runChecks(installed: true, only: IntegrationID.allCases.filter { !arrived.contains($0.source) })
+        }
+        #expect(waitUntil { Set(f.inbox.events.map(\.source)) == Set(IntegrationID.allCases.map(\.source)) })
+        #else
         #expect(waitUntil { f.inbox.count == IntegrationID.allCases.count })
+        #endif
         #expect(f.inbox.events.allSatisfy { $0.kind == .test })
         // Run from inside Cursor (CURSOR_VERSION), a test event still keeps its own source.
         #expect(Set(f.inbox.events.map(\.source)) == Set(IntegrationID.allCases.map(\.source)))
     }
 
+    #if !os(Windows)
     @Test func shellSnippetsSendCommandEventsEndToEnd() throws {
         try CLI.requireFreshBinary()
         let f = try ServerFixture()
@@ -389,6 +471,8 @@ struct EmitSubprocessTests {
         #expect(bashEvents.allSatisfy { $0.title == "cargo" })
         #expect(bashEvents.last?.exitCode == 1)
     }
+
+    #endif
 
     @Test func emitIsFast() throws {
         try CLI.requireFreshBinary()
@@ -435,18 +519,20 @@ struct CommandSubprocessTests {
         let home = FakeHome()
         defer { home.cleanup() }
         home.mkdir(".codex")
-        home.write(".zshrc", "export A=1\n")
+        // The shell's startup file: .zshrc on macOS, Windows PowerShell's profile on Windows.
+        let rc = BreakpointPlatform.isWindows ? PowerShellInstallerTests.profile51 : ".zshrc"
+        home.write(rc, "export A=1\n")
         let result = try CLI.run(["install", "all"], home: home.url, extraEnvironment: ["CODEX_HOME": "/should/not/be/used"])
         #expect(result.status == 0, "\(result.stdout) \(result.stderr)")
-        #expect(result.stdout.contains("Cursor: not found on this Mac, skipped"))
+        #expect(result.stdout.contains("Cursor: not found on this \(BreakpointPlatform.computerName), skipped"))
         #expect(result.stdout.contains("Open /hooks in Codex"))
         #expect(home.exists(".codex/hooks.json"))
         #expect(!FileManager.default.fileExists(atPath: "/should/not/be/used"))
-        #expect(home.read(".zshrc")!.contains(MarkerBlockEditor.beginMarker))
+        #expect(home.read(rc)!.contains(MarkerBlockEditor.beginMarker))
         let uninstall = try CLI.run(["uninstall", "all"], home: home.url)
         #expect(uninstall.status == 0)
         #expect(!home.exists(".codex/hooks.json"))
-        #expect(home.read(".zshrc") == "export A=1\n")
+        #expect(home.read(rc) == "export A=1\n")
     }
 
     @Test func errorsExitNonZeroWithAnExplanation() throws {

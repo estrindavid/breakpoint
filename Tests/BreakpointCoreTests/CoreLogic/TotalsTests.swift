@@ -1,4 +1,6 @@
+#if canImport(CoreText)
 import CoreText
+#endif
 import Foundation
 import Testing
 @testable import BreakpointCore
@@ -258,6 +260,7 @@ struct TotalsTests {
         }
     }
 
+    #if canImport(CoreText)
     /// Each line fits the popover's text column (320 pt wide, 16 pt margins, 4 pt inset) at its
     /// 12 pt size without shrinking.
     @Test func everyLineFitsThePopover() {
@@ -269,6 +272,7 @@ struct TotalsTests {
             #expect(width <= 320 - 2 * 16 - 2 * 4, "\(line) is \(width) pt")
         }
     }
+    #endif
 
     @Test func theLineShowsTheHighestExampleReached() {
         let first = MovingExamples.all[0], second = MovingExamples.all[1], last = MovingExamples.all.last!

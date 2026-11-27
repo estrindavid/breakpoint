@@ -43,7 +43,7 @@ public struct UpdateRelauncher {
 
     public var file: JSONFile<PendingUpdate>
     public var isAlive: (Int32) -> Bool
-    /// Starts the app at a URL (`/usr/bin/open -g`).
+    /// Starts the app at a URL (`AppBundle.open`).
     public var launch: (URL) throws -> Void
     public var terminate: (Int32) -> Void
     public var sleep: (TimeInterval) -> Void
@@ -53,7 +53,7 @@ public struct UpdateRelauncher {
     public var pollInterval: TimeInterval = 0.25
 
     public init(file: JSONFile<PendingUpdate>,
-                isAlive: @escaping (Int32) -> Bool = { kill($0, 0) == 0 },
+                isAlive: @escaping (Int32) -> Bool = AppBundle.isAlive,
                 launch: @escaping (URL) throws -> Void = UpdateRelauncher.open,
                 terminate: @escaping (Int32) -> Void = UpdateRelauncher.stop,
                 sleep: @escaping (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) },
@@ -105,19 +105,8 @@ public struct UpdateRelauncher {
         return .rolledBack
     }
 
-    public static func open(_ app: URL) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-g", app.path]
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { throw UpdateInstallError.didNotStart }
-    }
+    public static func open(_ app: URL) throws { try AppBundle.open(app) }
 
-    /// SIGTERM, then SIGKILL two seconds later if it is still there.
-    public static func stop(_ pid: Int32) {
-        kill(pid, SIGTERM)
-        for _ in 0..<20 where kill(pid, 0) == 0 { Thread.sleep(forTimeInterval: 0.1) }
-        if kill(pid, 0) == 0 { kill(pid, SIGKILL) }
-    }
+    /// Ends the process: a polite request first, then for good two seconds later.
+    public static func stop(_ pid: Int32) { AppBundle.stop(pid) }
 }

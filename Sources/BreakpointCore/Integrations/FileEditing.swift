@@ -455,7 +455,7 @@ public struct CLIInstaller: Sendable {
     /// Sidecar recording the installed copy's version.
     public var versionFile: URL { paths.binDirectory.appendingPathComponent(".breakpoint-version") }
 
-    public var isInstalled: Bool { FileManager.default.isExecutableFile(atPath: paths.cliCopy.path) }
+    public var isInstalled: Bool { Executable.isRunnable(paths.cliCopy) }
 
     /// The version recorded next to the installed copy, if any.
     public var installedVersion: String? {

@@ -4,7 +4,8 @@ import BreakpointCore
 // The `breakpoint` command-line tool (SPEC §5.8). `emit` is handled
 // before anything else can print or fail: it is silent and always exits 0 (SPEC §5.3).
 
-signal(SIGPIPE, SIG_IGN)
+Console.ignoreBrokenPipes()
+Console.useLineFeeds()
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 
@@ -31,7 +32,7 @@ do {
         status = Commands.debug(rest)
     case .version:
         // A terminal gets the mark beside the version; a pipe gets "breakpoint <version>" alone.
-        print(TerminalMark.versionOutput(version: BreakpointVersion.current, isTerminal: isatty(STDOUT_FILENO) == 1,
+        print(TerminalMark.versionOutput(version: BreakpointVersion.current, isTerminal: Console.stdoutIsTerminal,
                                          environment: ProcessInfo.processInfo.environment), terminator: "")
         status = 0
     case .help:

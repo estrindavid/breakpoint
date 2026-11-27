@@ -8,7 +8,7 @@ public enum SocketClientError: Error, Equatable, Sendable {
     case badReply
 }
 
-/// The CLI's end of the socket (SPEC §5.1, §5.3). POSIX only.
+/// The CLI's end of the socket (SPEC §5.1, §5.3). POSIX sockets on macOS, Winsock on Windows.
 ///
 /// Contract:
 /// - `send` connects and writes one line with a total timeout (default 100 ms), never waits for a
@@ -16,14 +16,14 @@ public enum SocketClientError: Error, Equatable, Sendable {
 ///   fully written. Used by `breakpoint emit` (whose p95 target is < 50 ms).
 /// - `request` sends one line and reads one reply line (timeout default 1 s). Used by
 ///   `breakpoint status` and `doctor`.
-/// - Ignores `SIGPIPE` for its own writes (`SO_NOSIGPIPE`).
+/// - Ignores `SIGPIPE` for its own writes (`SO_NOSIGPIPE`; Windows has no SIGPIPE).
 public enum EventSocketClient {
     @discardableResult
     public static func send(_ message: WireMessage, to socketPath: SocketPath, timeout: TimeInterval = 0.1) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         guard let line = try? message.encodedLine() else { return false }
         guard case .success(let fd) = UnixSocket.connect(path: socketPath.path, deadline: deadline) else { return false }
-        defer { close(fd) }
+        defer { UnixSocket.close(fd) }
         return UnixSocket.writeAll(fd, line, deadline: deadline)
     }
 
@@ -35,13 +35,13 @@ public enum EventSocketClient {
         } catch {
             throw SocketClientError.badReply
         }
-        let fd: Int32
+        let fd: UnixSocket.Handle
         switch UnixSocket.connect(path: socketPath.path, deadline: deadline) {
         case .success(let connected): fd = connected
         case .failure(.timedOut): throw SocketClientError.timedOut
         case .failure: throw SocketClientError.notRunning
         }
-        defer { close(fd) }
+        defer { UnixSocket.close(fd) }
         guard UnixSocket.writeAll(fd, line, deadline: deadline) else { throw SocketClientError.timedOut }
 
         var reply = Data()
@@ -52,14 +52,14 @@ public enum EventSocketClient {
                 break
             }
             guard reply.count <= WireMessage.maxLineBytes else { throw SocketClientError.badReply }
-            let n = read(fd, &buffer, buffer.count)
+            let n = buffer.withUnsafeMutableBytes { UnixSocket.read(fd, $0.baseAddress!, $0.count) }
             if n > 0 {
                 reply.append(buffer, count: n)
             } else if n == 0 {
                 if reply.isEmpty { throw SocketClientError.badReply }
                 break
-            } else if errno == EAGAIN || errno == EINTR {
-                guard UnixSocket.waitFor(fd, events: Int16(POLLIN), until: deadline) else { throw SocketClientError.timedOut }
+            } else if UnixSocket.isRetryable(UnixSocket.lastError) {
+                guard UnixSocket.waitFor(fd, events: UnixSocket.pollIn, until: deadline) else { throw SocketClientError.timedOut }
             } else {
                 throw SocketClientError.badReply
             }

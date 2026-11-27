@@ -28,3 +28,15 @@ public struct SocketPath: Equatable, Hashable, Sendable {
     /// The directory holding the socket (created mode 0700 by the server).
     public var directory: URL { url.deletingLastPathComponent() }
 }
+
+extension SocketPath {
+    /// Something is at the socket path (a socket file, or whatever else is in the way). Unlike
+    /// `FileManager.fileExists`, this sees a Windows AF_UNIX socket file too.
+    public var exists: Bool { UnixSocket.socketFileExists(path) }
+}
+
+extension SocketPath {
+    /// What is at the socket path is a socket file (macOS: `S_IFSOCK`; Windows: an AF_UNIX
+    /// reparse point).
+    public var isSocketFile: Bool { UnixSocket.isSocketFile(path) }
+}

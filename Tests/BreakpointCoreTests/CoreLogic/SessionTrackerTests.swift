@@ -91,7 +91,7 @@ struct SessionTrackerTests {
         let s = try #require(session(t))
         #expect(s.state == .idle && s.runStartedAt == nil && s.lastRunEnding == .finished(duration: 360))
         #expect(s.lastRunEndedAt == t0.plus(minutes: 6))
-        #expect(t.estimator.runs[.claudeCode] == [360])
+        #expect(t.estimator.runs[.claudeCode] == [TimeInterval]([360]))
         #expect(t.expectedRunLength(for: .claudeCode) == 360)
         #expect(Copy.resumeTitle(agent: s.displayName, ending: s.lastRunEnding!) == "Claude finished · ran 6 min")
     }
@@ -130,7 +130,7 @@ struct SessionTrackerTests {
         let u = t.apply(ev(.agentFinished, at: t0.plus(minutes: 13)), now: t0.plus(minutes: 13))
         // The card says how long it ran on the clock; the estimator learns the 3 working minutes.
         #expect(u.transitions == [.runEnded(key, .finished(duration: 13 * 60))])
-        #expect(t.estimator.runs[.claudeCode] == [180])
+        #expect(t.estimator.runs[.claudeCode] == [TimeInterval]([180]))
     }
 
     @Test func finishingWhileWaitingEndsTheWait() {
@@ -139,7 +139,7 @@ struct SessionTrackerTests {
         _ = t.apply(ev(.agentNeedsUser, detail: "permission_prompt", at: t0.plus(minutes: 2)), now: t0.plus(minutes: 2))
         let u = t.apply(ev(.agentFinished, at: t0.plus(minutes: 5)), now: t0.plus(minutes: 5))
         #expect(u.transitions == [.runEnded(key, .finished(duration: 300))])
-        #expect(t.estimator.runs[.claudeCode] == [120])
+        #expect(t.estimator.runs[.claudeCode] == [TimeInterval]([120]))
         #expect(session(t)?.waitingSince == nil)
     }
 

@@ -1,8 +1,54 @@
 import Foundation
+#if os(Windows)
+import WinSDK
+#endif
 
 /// Writes a file through a temporary file in the same directory and `rename`, so readers never see
 /// a half-written file (SPEC §5.5).
 enum AtomicFile {
+    #if os(Windows)
+    /// Windows: a new temporary file (`CREATE_NEW`), flushed, then `MoveFileExW` with
+    /// `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH`, which replaces the target in one
+    /// step. `mode` has no meaning on NTFS; the file inherits its folder's ACL, as a new file would.
+    static func write(_ data: Data, to url: URL, mode: mode_t) throws {
+        let directory = url.deletingLastPathComponent()
+        let suffix = UUID().uuidString.prefix(8)
+        let temp = directory.appendingPathComponent(".\(url.lastPathComponent).breakpoint-\(suffix).tmp")
+        let handle = temp.path.withCString(encodedAs: UTF16.self) {
+            CreateFileW($0, DWORD(GENERIC_WRITE), 0, nil, DWORD(CREATE_NEW), DWORD(FILE_ATTRIBUTE_NORMAL), nil)
+        }
+        guard let handle, handle != INVALID_HANDLE_VALUE else {
+            throw IntegrationError.io("Could not write in \(directory.path) (\(errnoString())).")
+        }
+        var ok = true
+        data.withUnsafeBytes { raw in
+            var offset = 0
+            while ok, offset < raw.count {
+                var written: DWORD = 0
+                let chunk = DWORD(min(raw.count - offset, 1 << 30))
+                ok = WriteFile(handle, raw.baseAddress! + offset, chunk, &written, nil) && written > 0
+                offset += Int(written)
+            }
+        }
+        if ok { ok = FlushFileBuffers(handle) }
+        CloseHandle(handle)
+        let moved = ok && SafeFile.retryingWhileBusy {
+            temp.path.withCString(encodedAs: UTF16.self) { from in
+                url.path.withCString(encodedAs: UTF16.self) { to in
+                    MoveFileExW(from, to, DWORD(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+                }
+            }
+        }
+        guard moved else {
+            let reason = errnoString()
+            _ = temp.path.withCString(encodedAs: UTF16.self) { DeleteFileW($0) }
+            throw IntegrationError.io("Could not write \(url.path) (\(reason)).")
+        }
+    }
+
+    /// The last Windows error, in the system's words.
+    static func errnoString() -> String { WindowsError.message(GetLastError()) }
+    #else
     static func write(_ data: Data, to url: URL, mode: mode_t) throws {
         let directory = url.deletingLastPathComponent()
         let suffix = UUID().uuidString.prefix(8)
@@ -32,6 +78,18 @@ enum AtomicFile {
     }
 
     static func errnoString() -> String { String(cString: strerror(errno)) }
+    #endif
+
+    /// Deletes a file; a file that is already gone is not an error.
+    static func remove(_ url: URL) -> Bool {
+        #if os(Windows)
+        if url.path.withCString(encodedAs: UTF16.self, { DeleteFileW($0) }) { return true }
+        let error = GetLastError()
+        return error == DWORD(ERROR_FILE_NOT_FOUND) || error == DWORD(ERROR_PATH_NOT_FOUND)
+        #else
+        return unlink(url.path) == 0 || errno == ENOENT
+        #endif
+    }
 }
 
 /// One configuration file an installer edits: read, back up, re-read, write atomically
@@ -58,7 +116,7 @@ struct ConfigFile {
         if isDirectory.boolValue { throw IntegrationError.unparseableFile(url, reason: "it is a folder") }
         let data: Data
         do {
-            data = try Data(contentsOf: target)
+            data = try SafeFile.read(target)
         } catch {
             throw IntegrationError.io("\(url.path) could not be read.")
         }
@@ -89,7 +147,7 @@ struct ConfigFile {
             if let updated {
                 try AtomicFile.write(Data(updated.utf8), to: target, mode: existingMode(target) ?? 0o644)
             } else {
-                guard unlink(target.path) == 0 || errno == ENOENT else {
+                guard AtomicFile.remove(target) else {
                     throw IntegrationError.io("Could not remove \(url.path) (\(AtomicFile.errnoString())).")
                 }
             }
@@ -103,6 +161,23 @@ struct ConfigFile {
     /// (it would change owner), or a hard-linked file (the other names would keep the old text).
     /// Also refuses up front when the folder is not writable, so no orphan backup is left.
     private func checkReplaceable(_ target: URL, exists: Bool) throws {
+        #if os(Windows)
+        let shown = PathDisplay.abbreviatingHome(url.path, home: environment.home.path)
+        // A rewrite on NTFS never changes the owner (a new file inherits the folder's ACL); the
+        // read-only attribute and extra hard links still mean "leave it alone".
+        if exists, let info = WindowsFileInfo(path: target.path) {
+            if info.isReadOnly {
+                throw IntegrationError.io("\(shown) is read-only, so Breakpoint left it alone.")
+            }
+            if info.links > 1 {
+                throw IntegrationError.io("\(shown) has another hard link, so Breakpoint left it alone (rewriting it would split the link).")
+            }
+        }
+        let folder = target.deletingLastPathComponent()
+        guard FileManager.default.isWritableFile(atPath: folder.path) else {
+            throw IntegrationError.io("Breakpoint can't write in \(PathDisplay.abbreviatingHome(folder.path, home: environment.home.path)), so nothing was changed.")
+        }
+        #else
         let shown = PathDisplay.abbreviatingHome(url.path, home: environment.home.path)
         if exists {
             var info = stat()
@@ -122,25 +197,35 @@ struct ConfigFile {
         guard access(folder.path, W_OK) == 0 else {
             throw IntegrationError.io("Breakpoint can't write in \(PathDisplay.abbreviatingHome(folder.path, home: environment.home.path)), so nothing was changed.")
         }
+        #endif
     }
 
     private func existingMode(_ target: URL) -> mode_t? {
+        #if os(Windows)
+        return nil
+        #else
         var info = stat()
         guard stat(target.path, &info) == 0 else { return nil }
         return info.st_mode & 0o7777
+        #endif
     }
 
     /// The final target of `url` after following symbolic links (the path itself if absent).
     func resolvedTarget() throws -> URL {
         var current = url
         for _ in 0..<16 {
+            #if os(Windows)
+            guard let type = try? FileManager.default.attributesOfItem(atPath: current.path)[.type] as? FileAttributeType,
+                  type == .typeSymbolicLink else { return current }
+            #else
             var info = stat()
             guard lstat(current.path, &info) == 0 else { return current }
             guard (info.st_mode & S_IFMT) == S_IFLNK else { return current }
+            #endif
             guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: current.path) else {
                 throw IntegrationError.io("\(url.path) is a link that could not be read.")
             }
-            current = destination.hasPrefix("/")
+            current = PathDisplay.isAbsolute(destination)
                 ? URL(fileURLWithPath: destination)
                 : current.deletingLastPathComponent().appendingPathComponent(destination)
             current = current.standardizedFileURL
@@ -224,11 +309,8 @@ struct IntegrationLedger: Codable, Equatable {
     /// not update the ledger itself.
     static func update(_ paths: BreakpointPaths, _ body: (inout IntegrationLedger) -> Void) {
         try? paths.ensureAppSupportDirectory()
-        let lock = open(paths.appSupport.appendingPathComponent("integrations.lock").path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
-        if lock >= 0 {
-            while flock(lock, LOCK_EX) != 0 && errno == EINTR {}
-        }
-        defer { if lock >= 0 { close(lock) } }
+        let lock = FileLock(paths.appSupport.appendingPathComponent("integrations.lock"))
+        defer { lock.unlock() }
         var ledger = load(paths)
         let before = ledger
         body(&ledger)
@@ -300,7 +382,7 @@ enum CreatedDirectory {
             guard ledger.directories.contains(current.path) else { return }
             if fm.fileExists(atPath: current.path) {
                 guard let contents = try? fm.contentsOfDirectory(atPath: current.path), contents.isEmpty else { return }
-                guard rmdir(current.path) == 0 else { return }
+                guard FileSystemShim.removeEmptyDirectory(current) else { return }
             }
             IntegrationLedger.update(environment.paths) { $0.directories.removeAll { $0 == current.path } }
             current = current.deletingLastPathComponent()

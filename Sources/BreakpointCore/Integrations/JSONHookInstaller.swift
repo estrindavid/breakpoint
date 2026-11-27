@@ -15,6 +15,18 @@ struct JSONHookInstaller {
     var validate: (JSONTextDocument) throws -> Void = { _ in }
 
     var marker: HookMarker { HookMarker(source: id.source) }
+
+    /// Commands that read as an older install rather than an edit: what earlier versions wrote
+    /// and, on Windows, the macOS form of every current or earlier command (a settings file
+    /// shared with a Mac through dotfiles), which Install then rewrites for this PC.
+    var recognizedCommands: Set<String> {
+        #if os(Windows)
+        let current = entries.compactMap { $0.handler["command"]?.stringValue }
+        return legacyCommands.union((current + legacyCommands).compactMap(HookCommand.posixForm(of:)))
+        #else
+        return legacyCommands
+        #endif
+    }
     var configFile: ConfigFile { ConfigFile(url: file, tool: id, environment: environment) }
 
     func status(found: Bool) -> IntegrationInstallState {
@@ -23,7 +35,7 @@ struct JSONHookInstaller {
             guard let text = try configFile.read() else { return .notInstalled }
             if !text.isBlank { try validate(try JSONSettingsMerger.document(text, format: format, file: file)) }
             switch try JSONSettingsMerger.state(of: text, wanted: entries, marker: marker, format: format,
-                                                recognizedCommands: legacyCommands, file: file) {
+                                                recognizedCommands: recognizedCommands, file: file) {
             case .absent: return .notInstalled
             case .current: return .installed
             case .outdated: return .outdated

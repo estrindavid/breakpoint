@@ -62,7 +62,7 @@ enum Commands {
         for id in ids {
             let integration = IntegrationRegistry.integration(id, environment: environment)
             if all, !integration.detect() {
-                print("\(id.displayName): not found on this Mac, skipped")
+                print("\(id.displayName): not found on this \(BreakpointPlatform.computerName), skipped")
                 continue
             }
             do {
@@ -123,6 +123,15 @@ enum Commands {
             line(false, "App is not running")
         }
         let socketDescription = display(socket.url) + (socket.isFallback ? " (short fallback path)" : "")
+        #if os(Windows)
+        // Windows: an AF_UNIX socket file is a reparse point; its folder's ACL is the user's own.
+        if socket.exists {
+            let isSocket = socket.isSocketFile
+            line(isSocket, "Socket \(socketDescription)" + (isSocket ? "" : ", not a socket"))
+        } else {
+            line(running ? false : nil, "Socket \(socketDescription) does not exist")
+        }
+        #else
         var info = stat()
         if lstat(socket.path, &info) == 0 {
             let isSocket = info.st_mode & S_IFMT == S_IFSOCK
@@ -137,6 +146,7 @@ enum Commands {
             let mode = dirInfo.st_mode & 0o777
             line(mode & 0o077 == 0, "Socket folder mode \(String(mode, radix: 8))")
         }
+        #endif
 
         // Integrations.
         let environment = environment
@@ -208,7 +218,7 @@ enum Commands {
 
     static func describe(_ state: IntegrationInstallState, lastEvent: Date?, id: IntegrationID) -> String {
         switch state {
-        case .notFound: return "not found on this Mac"
+        case .notFound: return "not found on this \(BreakpointPlatform.computerName)"
         case .notInstalled: return "not installed"
         case .unreadable(let reason): return reason
         case .outdated: return "installed by another version; run `breakpoint install \(id.rawValue)` to update"

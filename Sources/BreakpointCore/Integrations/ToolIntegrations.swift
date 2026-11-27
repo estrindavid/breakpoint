@@ -24,10 +24,10 @@ public struct ClaudeCodeIntegration: Integration {
 
     static let notificationMatcher = "permission_prompt|elicitation_dialog|elicitation_url_dialog|idle_prompt"
 
-    static var entries: [JSONSettingsMerger.HookEntry] {
+    static func entries(_ paths: BreakpointPaths) -> [JSONSettingsMerger.HookEntry] {
         let source = AgentSource.claudeCode
         func entry(_ event: String, _ kind: AgentEventKind, matcher: String? = nil, extra: [String] = [], sync: Bool = false) -> Entry {
-            let command = HookCommand.shell(kind, source: source, extra: extra)
+            let command = HookCommand.shell(kind, source: source, extra: extra, paths: paths)
             return Entry(event: event, matcher: matcher,
                          handler: HookHandler.claudeStyle(command, async: !sync, timeout: sync ? 2 : nil))
         }
@@ -46,11 +46,13 @@ public struct ClaudeCodeIntegration: Integration {
     }
 
     /// The research draft's StopFailure command (no `--detail`), treated as an older install.
-    static let legacyCommands: Set<String> = [HookCommand.shell(.agentFinished, source: .claudeCode)]
+    static func legacyCommands(_ paths: BreakpointPaths) -> Set<String> {
+        [HookCommand.shell(.agentFinished, source: .claudeCode, paths: paths)]
+    }
 
     var installer: JSONHookInstaller {
-        JSONHookInstaller(id: id, environment: environment, file: configFile, entries: Self.entries,
-                          format: .init(layout: .grouped), legacyCommands: Self.legacyCommands)
+        JSONHookInstaller(id: id, environment: environment, file: configFile, entries: Self.entries(environment.paths),
+                          format: .init(layout: .grouped), legacyCommands: Self.legacyCommands(environment.paths))
     }
 
     public static let installNotes = [
@@ -80,10 +82,10 @@ public struct CursorIntegration: Integration {
         "preToolUse", "beforeShellExecution", "beforeMCPExecution", "beforeReadFile", "beforeTabFileRead", "subagentStart",
     ]
 
-    static var entries: [JSONSettingsMerger.HookEntry] {
+    static func entries(_ paths: BreakpointPaths) -> [JSONSettingsMerger.HookEntry] {
         func entry(_ event: String, _ kind: AgentEventKind) -> Entry {
             Entry(event: event, handler: .object([
-                JMember("command", .string(HookCommand.shell(kind, source: .cursor))),
+                JMember("command", .string(HookCommand.shell(kind, source: .cursor, paths: paths))),
                 JMember("timeout", .int(2)),
             ]))
         }
@@ -97,7 +99,7 @@ public struct CursorIntegration: Integration {
     }
 
     var installer: JSONHookInstaller {
-        var installer = JSONHookInstaller(id: id, environment: environment, file: configFile, entries: Self.entries,
+        var installer = JSONHookInstaller(id: id, environment: environment, file: configFile, entries: Self.entries(environment.paths),
                                           format: .init(layout: .flat, skeleton: [JMember("version", .int(1))]),
                                           legacyCommands: [])
         let file = configFile
@@ -129,9 +131,9 @@ public struct CodexIntegration: Integration {
     public var configFile: URL { toolFolder.appendingPathComponent("hooks.json") }
     public func detect() -> Bool { folderExists(toolFolder) }
 
-    static var entries: [JSONSettingsMerger.HookEntry] {
+    static func entries(_ paths: BreakpointPaths) -> [JSONSettingsMerger.HookEntry] {
         func entry(_ event: String, _ kind: AgentEventKind, extra: [String] = [], syncTimeout: Int? = nil) -> Entry {
-            let command = HookCommand.shell(kind, source: .codex, extra: extra)
+            let command = HookCommand.shell(kind, source: .codex, extra: extra, paths: paths)
             return Entry(event: event, handler: HookHandler.claudeStyle(command, async: syncTimeout == nil, timeout: syncTimeout))
         }
         return [
@@ -146,11 +148,13 @@ public struct CodexIntegration: Integration {
     }
 
     /// The research draft's Interrupt command (no `--detail`), treated as an older install.
-    static let legacyCommands: Set<String> = [HookCommand.shell(.agentFinished, source: .codex)]
+    static func legacyCommands(_ paths: BreakpointPaths) -> Set<String> {
+        [HookCommand.shell(.agentFinished, source: .codex, paths: paths)]
+    }
 
     var installer: JSONHookInstaller {
-        JSONHookInstaller(id: id, environment: environment, file: configFile, entries: Self.entries,
-                          format: .init(layout: .grouped), legacyCommands: Self.legacyCommands)
+        JSONHookInstaller(id: id, environment: environment, file: configFile, entries: Self.entries(environment.paths),
+                          format: .init(layout: .grouped), legacyCommands: Self.legacyCommands(environment.paths))
     }
 
     /// Codex skips hooks until the user trusts them (SPEC §5.5).
@@ -182,12 +186,12 @@ public struct GeminiIntegration: Integration {
     public var configFile: URL { toolFolder.appendingPathComponent("settings.json") }
     public func detect() -> Bool { folderExists(toolFolder) }
 
-    static var entries: [JSONSettingsMerger.HookEntry] {
+    static func entries(_ paths: BreakpointPaths) -> [JSONSettingsMerger.HookEntry] {
         func entry(_ event: String, _ kind: AgentEventKind) -> Entry {
             Entry(event: event, matcher: "*", handler: .object([
                 JMember("name", .string("breakpoint")),
                 JMember("type", .string("command")),
-                JMember("command", .string(HookCommand.shell(kind, source: .gemini))),
+                JMember("command", .string(HookCommand.shell(kind, source: .gemini, paths: paths))),
                 JMember("timeout", .int(2000)),
             ]))
         }
@@ -199,7 +203,7 @@ public struct GeminiIntegration: Integration {
     }
 
     var installer: JSONHookInstaller {
-        JSONHookInstaller(id: id, environment: environment, file: configFile, entries: Self.entries,
+        JSONHookInstaller(id: id, environment: environment, file: configFile, entries: Self.entries(environment.paths),
                           format: .init(layout: .grouped, allowsComments: true), legacyCommands: [])
     }
 
@@ -225,13 +229,15 @@ public struct CopilotIntegration: Integration {
 
     static let notificationMatcher = "permission_prompt|elicitation_dialog"
 
-    static var document: JValue {
+    /// On Windows Copilot CLI runs the `powershell` field (PowerShell 7); elsewhere `bash`.
+    static func document(_ paths: BreakpointPaths) -> JValue {
         func handler(_ kind: AgentEventKind, matcher: String? = nil) -> JValue {
-            var members = [
-                JMember("type", .string("command")),
-                JMember("bash", .string(HookCommand.shell(kind, source: .copilot))),
-                JMember("timeoutSec", .int(2)),
-            ]
+            let command = HookCommand.shell(kind, source: .copilot, paths: paths)
+            var members = [JMember("type", .string("command")), JMember("bash", .string(command))]
+            #if os(Windows)
+            members.append(JMember("powershell", .string(command)))
+            #endif
+            members.append(JMember("timeoutSec", .int(2)))
             if let matcher { members.append(JMember("matcher", .string(matcher))) }
             return .object(members)
         }
@@ -247,8 +253,8 @@ public struct CopilotIntegration: Integration {
         ])
     }
 
-    static var fileText: String {
-        JSONRender.render(document, indent: "", unit: "  ", newline: "\n", compact: false) + "\n"
+    static func fileText(_ paths: BreakpointPaths) -> String {
+        JSONRender.render(document(paths), indent: "", unit: "  ", newline: "\n", compact: false) + "\n"
     }
 
     private var marker: HookMarker { HookMarker(source: .copilot) }
@@ -281,8 +287,8 @@ public struct CopilotIntegration: Integration {
             switch try contents() {
             case .absent, .foreign: return .notInstalled
             case .ours(let value):
-                if value.semanticallyEquals(Self.document) { return .installed }
-                let known = Set(Self.document.commands)
+                if value.semanticallyEquals(Self.document(environment.paths)) { return .installed }
+                let known = Set(Self.document(environment.paths).commands)
                 return value.commands.allSatisfy(known.contains) ? .outdated : .modified
             }
         } catch let error as IntegrationError {
@@ -300,8 +306,8 @@ public struct CopilotIntegration: Integration {
         try environment.ensureCLICopy()
         try CreatedDirectory.ensure(hooksFolder, environment: environment)
         let change = try file.update { text in
-            if let text, let value = try? JValue.parse(text), value.semanticallyEquals(Self.document) { return text }
-            return Self.fileText
+            if let text, let value = try? JValue.parse(text), value.semanticallyEquals(Self.document(environment.paths)) { return text }
+            return Self.fileText(environment.paths)
         }
         return InstallReport(changedFiles: change.map { [$0.file] } ?? [], backups: change?.backup.map { [$0] } ?? [])
     }
@@ -320,7 +326,8 @@ extension JValue {
         switch self {
         case .object(let members):
             return members.flatMap { member -> [String] in
-                if member.key == "command" || member.key == "bash", let s = member.value.stringValue { return [s] }
+                if member.key == "command" || member.key == "bash" || member.key == "powershell",
+                   let s = member.value.stringValue { return [s] }
                 return member.value.commands
             }
         case .array(let items): return items.flatMap(\.commands)

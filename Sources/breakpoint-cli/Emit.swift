@@ -28,14 +28,8 @@ enum Emit {
         exit(0)
     }
 
-    /// Points stdout and stderr at /dev/null, so not even a runtime warning can reach the hook.
-    static func silenceOutput() {
-        let null = open("/dev/null", O_WRONLY | O_CLOEXEC)
-        guard null >= 0 else { return }
-        dup2(null, STDOUT_FILENO)
-        dup2(null, STDERR_FILENO)
-        if null > STDERR_FILENO { close(null) }
-    }
+    /// Points stdout and stderr at the null device, so not even a runtime warning can reach the hook.
+    static func silenceOutput() { Console.silenceOutput() }
 
     /// "Keep prompt snippets" (SPEC §3.9), read without side effects; on when unreadable.
     static func storePromptSnippets(_ paths: BreakpointPaths) -> Bool {
@@ -46,32 +40,7 @@ enum Emit {
     }
 
     /// Reads stdin to EOF, at most `limit` bytes, giving up after `timeout` seconds in total.
-    /// Never blocks longer than `timeout`, never reads a terminal, never changes stdin's flags
-    /// (the descriptor is shared with the hook runner). Returns what was read (or nil).
     static func readStdin(limit: Int, timeout: TimeInterval) -> Data? {
-        let fd = STDIN_FILENO
-        guard isatty(fd) == 0 else { return nil }
-        let deadline = Date().addingTimeInterval(timeout)
-        var data = Data()
-        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-        while data.count < limit {
-            let remainingMS = Int32((deadline.timeIntervalSinceNow * 1000).rounded(.up))
-            if remainingMS <= 0 { break }
-            var pfd = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-            let ready = poll(&pfd, 1, remainingMS)
-            if ready < 0, errno == EINTR { continue }
-            if ready <= 0 { break }
-            if pfd.revents & Int16(POLLNVAL) != 0 { break }
-            // poll said readable (or hung up), so this read does not block.
-            let count = read(fd, &buffer, min(buffer.count, limit - data.count))
-            if count > 0 {
-                data.append(buffer, count: count)
-            } else if count == 0 {
-                break  // EOF
-            } else if errno != EAGAIN && errno != EINTR {
-                break
-            }
-        }
-        return data.isEmpty ? nil : data
+        Console.readStdin(limit: limit, timeout: timeout)
     }
 }
