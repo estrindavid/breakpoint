@@ -52,10 +52,9 @@ jobs:
           persist-credentials: false
 
       - name: Swift toolchain
-        uses: compnerd/gha-setup-swift@9ff1ee4c44888c5817fc14d1b257ac8cabb4935f # v0.5.1
-        with:
-          swift-version: swift-6.4.3-release
-          swift-build: 6.4.3-RELEASE
+        # swift.org's installer, checked against a pinned SHA-256 (no setup action: the repository
+        # allows only SHA-pinned actions, and those use others by tag).
+        run: scripts/windows/install-swift.ps1
 
       - name: Tests and end-to-end flows
         run: |
