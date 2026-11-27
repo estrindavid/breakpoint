@@ -4,6 +4,6 @@ import Foundation
 /// for `CFBundleShortVersionString`; the CLI prints it for `--version`; `CLIInstaller` compares it to
 /// decide whether `~/.breakpoint/bin/breakpoint` needs refreshing.
 public enum BreakpointVersion {
-    public static let current = "0.2.0"
+    public static let current = "0.3.0"
     public static let bundleIdentifier = "com.breakpointapp.Breakpoint"
 }
