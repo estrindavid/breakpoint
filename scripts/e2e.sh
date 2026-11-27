@@ -1788,7 +1788,7 @@ flow_hints_after_skipped_tour() {
   expect "Not now on the offer" "$(q .settings.tourStatus)" "declined"
   sleep 0.2
   expect "the popover opens once, as before the tour existed" "$(q .popover.open)" "true"
-  expect "with its hint" "$(q .popover.hint)" "Option-click the mark to see why no break yet."
+  expect "with its hint" "$(q .popover.hint)" "$POPOVER_HINT"
   dbg action close-popover
   dbg timers 0 3050
   emit agentStarted --source claude-code --session s1 --cwd /work/alpha
@@ -1831,7 +1831,7 @@ flow_popover() {
   dbg settings '{"showHints": true}'
   dbg action activate
   expect "the mark opens the popover" "$(q .popover.open)" "true"
-  expect "the first time with its hint" "$(q .popover.hint)" "Option-click the mark to see why no break yet."
+  expect "the first time with its hint" "$(q .popover.hint)" "$POPOVER_HINT"
   dbg popover menu-bar-hidden
   expect "the hint keeps it open when the menu bar slides away" "$(q .popover.open)" "true"
   expect_log "and the trace says so" "popover stays open after the menu bar sliding away"
