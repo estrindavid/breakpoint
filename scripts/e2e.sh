@@ -197,6 +197,15 @@ wait_idle_integrations() {
   done
 }
 
+# A check for updates finishes in the background: wait until the app has seen VERSION (up to 10 s),
+# so a slow machine never acts on the previous release's state.
+wait_update_seen() {
+  for _ in $(seq 1 100); do
+    [[ "$(q '.update.available')" == "$1" ]] && return 0
+    sleep 0.1
+  done
+}
+
 # MARK: flows
 
 flow_launch_and_onboarding() {
@@ -1582,6 +1591,7 @@ flow_update_install() {
   release_dir "$BREAKPOINT_HOME/r1" 9.9.8 "Signed with another key." "$OTHER"
   dbg update-feed "$BREAKPOINT_HOME/r1/update-feed.json"
   dbg action check-updates
+  wait_update_seen 9.9.8
   expect "without a release key in this copy it can only announce" "$(q "$U") $(q .update.blocker)" \
     "available 9.9.8 false This copy has no release key, so it can tell you about new versions but not install them."
   dbg advance 1
@@ -1599,6 +1609,7 @@ flow_update_install() {
   printf 'x' >> "$BREAKPOINT_HOME/r2/Breakpoint-9.9.9.zip"
   dbg update-feed "$BREAKPOINT_HOME/r2/update-feed.json"
   dbg action check-updates
+  wait_update_seen 9.9.9
   dbg action install-update
   expect "a changed archive: refused" "$(q '.update | "\(.phase) \(.detail)"') | $(app_version "$APPS/$APPNAME")" \
     "installFailed The download didn't match its signature, so Breakpoint didn't install it. | $CURRENT"
@@ -1606,6 +1617,7 @@ flow_update_install() {
   release_dir "$BREAKPOINT_HOME/r3" 9.9.10 "Breaks now wait for every agent." "$KEY"
   dbg update-feed "$BREAKPOINT_HOME/r3/update-feed.json"
   dbg action check-updates
+  wait_update_seen 9.9.10
   dbg action start move
   dbg action install-update
   expect "never during a break: it waits, and Update stays on offer" \

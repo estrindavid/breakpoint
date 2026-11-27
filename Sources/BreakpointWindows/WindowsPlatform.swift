@@ -26,6 +26,7 @@ public final class WindowsPlatform: AppPlatform {
     public func quit() {
         willQuit?()
         willQuit = nil
+        ExitGuard.arm()
         MessageLoop.quit()
     }
 
@@ -154,5 +155,24 @@ extension Dialogs {
         var process: DWORD = 0
         GetWindowThreadProcessId(window, &process)
         return process == GetCurrentProcessId() ? window : nil
+    }
+}
+
+/// Ends the process if quitting stalls. By the time it is armed everything is saved and stopped;
+/// what remains (leaving the message loop, the runtime's exit handlers) has, rarely and on a slow
+/// machine, waited forever on a thread that never finishes. After `seconds` the process ends with
+/// exit status 0, as a normal quit would.
+public enum ExitGuard {
+    nonisolated(unsafe) private static var armed = false
+
+    public static func arm(seconds: TimeInterval = 10, status: Int32 = 0) {
+        guard !armed else { return }
+        armed = true
+        Thread.detachNewThread {
+            Thread.sleep(forTimeInterval: seconds)
+            fflush(stdout)
+            fflush(stderr)
+            TerminateProcess(GetCurrentProcess(), UINT(bitPattern: status))
+        }
     }
 }

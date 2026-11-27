@@ -70,4 +70,9 @@ let status: Int32 = MainActor.assumeIsolated {
     withExtendedLifetime(coordinator) {}
     return code
 }
+// Everything is saved and stopped. `exit` still runs the runtime's exit handlers; if one of them
+// stalls, the guard ends the process with the same status (see ExitGuard).
+fflush(stdout)
+fflush(stderr)
+ExitGuard.arm(seconds: 5, status: status)
 exit(status)
