@@ -55,6 +55,27 @@ same code on both; the unit tests (613) and the end-to-end flows (`scripts/e2e.s
   change). Right click opens the menu; "Why not now?" is a greyed line at its top, since Windows has
   no Option-click.
 
+## Pop-ups and the break overlay (SPEC §3.0–3.6)
+
+- Pop-ups are tool windows that never take focus (`WS_EX_NOACTIVATE`), stacked by `PopupStack`
+  on the display under the pointer, with the Mac's priorities and limit of two. Their shortcuts are
+  `RegisterHotKey` registrations, held only while the card shows. The wind-down card alone takes
+  the keyboard after a click, as the Mac's becomes key.
+- Windows rounds every pop-up window the same way, so the away note and toasts are rounded
+  rectangles rather than capsules; the eye-rest countdown chip draws its own capsule and lets
+  clicks through to whatever is under it.
+- Arrivals and exits use the system's own window transitions; the Mac's liquid arrival and the
+  card-to-chip hand-off are not drawn.
+- The break overlay is one topmost window per display. An overlay window has no backdrop
+  material to blur the desktop, so its scrim is heavier (86% where the Mac's is 60% over a blur;
+  93% for high contrast and the walk's ambient mode). It fades in and out as one layer, its aurora
+  is still (a full-screen window redrawing all break long costs more than it gives), and the
+  luminous ring's colour sweep is drawn in segments.
+- Focus: the window in front when the break starts gets the keyboard back when it ends, unless
+  the person switched apps meanwhile. The watchdog (SPEC §7.2) runs on its own thread and is fed
+  by a Win32 timer too, so a tray menu held open (a modal loop Foundation's timers do not run in)
+  never looks like a hang.
+
 ## Signals (SPEC §2.4) without a hook
 
 Windows lets any app install keyboard and mouse hooks or raw-input listeners without asking. The

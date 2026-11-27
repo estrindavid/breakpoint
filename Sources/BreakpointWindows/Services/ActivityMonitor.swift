@@ -73,7 +73,7 @@ public final class WindowsActivityMonitor: ActivityMonitoring {
     private func scheduleClassifier(fast: Bool) {
         classifier?.invalidate()
         classifierIsFast = fast
-        let timer = Timer(timeInterval: fast ? 0.25 : 2, repeats: true) { [weak self] _ in
+        let timer = Timer.after(fast ? 0.25 : 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.classify()

@@ -374,7 +374,7 @@ public final class AppCoordinator {
         guard interval != tickInterval || tickTimer == nil else { return }
         tickInterval = interval
         tickTimer?.invalidate()
-        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+        let timer = Timer.after(interval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
         timer.tolerance = interval * 0.1

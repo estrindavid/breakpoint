@@ -207,7 +207,7 @@ final class NudgeController: SurfaceController {
 
     private func restartIgnoreTimer(after delay: TimeInterval) {
         ignoreTimer?.invalidate()
-        let timer = Timer(timeInterval: delay, repeats: false) { _ in
+        let timer = Timer.after(delay, repeats: false) { _ in
             MainActor.assumeIsolated { [weak self] in self?.timedOut() }
         }
         RunLoop.main.add(timer, forMode: .common)

@@ -516,7 +516,7 @@ public final class SettingsController: SurfaceController {
         ui.copiedUntil = Date().addingTimeInterval(1.5)
         redraw()
         copiedTimer?.invalidate()
-        let timer = Timer(timeInterval: 1.55, repeats: false) { _ in
+        let timer = Timer.after(1.55, repeats: false) { _ in
             MainActor.assumeIsolated { [weak self] in
                 self?.ui.copiedUntil = nil
                 self?.redraw()
@@ -537,7 +537,7 @@ public final class SettingsController: SurfaceController {
         }
         guard changed else { return }
         flashTimer?.invalidate()
-        let timer = Timer(timeInterval: 1.6, repeats: false) { _ in
+        let timer = Timer.after(1.6, repeats: false) { _ in
             MainActor.assumeIsolated { [weak self] in
                 self?.ui.flashing.removeAll()
                 self?.redraw()

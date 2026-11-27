@@ -291,7 +291,7 @@ final class PopupHover {
         revealTimer?.invalidate()
         revealTimer = nil
         if value {
-            let timer = Timer(timeInterval: 0.3, repeats: false) { _ in
+            let timer = Timer.after(0.3, repeats: false) { _ in
                 MainActor.assumeIsolated { [weak self] in
                     guard let self, self.inside else { return }
                     self.revealed = true

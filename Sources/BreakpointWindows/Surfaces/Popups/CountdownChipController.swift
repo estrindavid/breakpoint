@@ -117,7 +117,7 @@ final class CountdownChipController: SurfaceController {
         placed = nil
         follow()
         window.window.show(activate: false)
-        let timer = Timer(timeInterval: Self.followInterval, repeats: true) { _ in
+        let timer = Timer.after(Self.followInterval, repeats: true) { _ in
             MainActor.assumeIsolated { [weak self] in self?.follow() }
         }
         timer.tolerance = 0.005

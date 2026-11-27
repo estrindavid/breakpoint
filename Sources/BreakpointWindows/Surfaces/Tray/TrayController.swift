@@ -171,7 +171,7 @@ final class TrayController: SurfaceController {
         cue = (newCue, Date(), variant, badge)
         updatePulseTimer(running: false)
         cueTick()
-        let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { _ in
+        let timer = Timer.after(1.0 / 30, repeats: true) { _ in
             MainActor.assumeIsolated { [weak self] in self?.cueTick() }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -198,7 +198,7 @@ final class TrayController: SurfaceController {
 
     private func updatePulseTimer(running: Bool) {
         if running, pulseTimer == nil {
-            let timer = Timer(timeInterval: 1.0 / 12, repeats: true) { _ in
+            let timer = Timer.after(1.0 / 12, repeats: true) { _ in
                 MainActor.assumeIsolated { [weak self] in
                     guard let self else { return }
                     let step = self.currentPulseStep()
@@ -377,7 +377,7 @@ final class TrayController: SurfaceController {
     private func updateFlyoutTimer() {
         let pulsing = flyoutOpen && canMove && state.sessions.contains { $0.state == .working }
         if pulsing, flyoutTimer == nil {
-            let timer = Timer(timeInterval: 1.0 / 15, repeats: true) { _ in
+            let timer = Timer.after(1.0 / 15, repeats: true) { _ in
                 MainActor.assumeIsolated { [weak self] in self?.flyout?.setNeedsDisplay() }
             }
             RunLoop.main.add(timer, forMode: .common)

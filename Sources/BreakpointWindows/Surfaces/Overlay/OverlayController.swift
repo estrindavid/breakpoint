@@ -125,12 +125,12 @@ public final class OverlayController: SurfaceController {
         fade = Tween(from: 0, to: 1, duration: reduceMotion ? 0.25 : Theme.Duration.overlayFade, start: now)
         buildWindows()
         watchdog.start()
-        let heartbeat = Timer(timeInterval: OverlayMetrics.heartbeatInterval, repeats: true) { _ in
+        let heartbeat = Timer.after(OverlayMetrics.heartbeatInterval, repeats: true) { _ in
             MainActor.assumeIsolated { [weak self] in self?.watchdog.heartbeat() }
         }
         RunLoop.main.add(heartbeat, forMode: .common)
         heartbeatTimer = heartbeat
-        let backstop = Timer(timeInterval: 1, repeats: true) { _ in
+        let backstop = Timer.after(1, repeats: true) { _ in
             MainActor.assumeIsolated { [weak self] in self?.checkCeiling() }
         }
         RunLoop.main.add(backstop, forMode: .common)
@@ -437,7 +437,7 @@ public final class OverlayController: SurfaceController {
         }
         let pulses = !reduceMotion && !clockRunning && exitStart == nil && (display?.agentChip.isWorking ?? false)
         if pulses, pulseTimer == nil {
-            let timer = Timer(timeInterval: 1.0 / 15, repeats: true) { _ in
+            let timer = Timer.after(1.0 / 15, repeats: true) { _ in
                 MainActor.assumeIsolated { [weak self] in self?.mainScreen?.window.setNeedsDisplay() }
             }
             RunLoop.main.add(timer, forMode: .common)

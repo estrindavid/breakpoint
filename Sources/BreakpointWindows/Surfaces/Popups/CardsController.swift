@@ -259,7 +259,7 @@ final class CardsController: SurfaceController {
         model.timer = nil
         guard let deadline = model.rim?.countdown.deadline else { return }
         let id = model.id
-        let timer = Timer(timeInterval: max(0, deadline.timeIntervalSinceNow), repeats: false) { _ in
+        let timer = Timer.after(max(0, deadline.timeIntervalSinceNow), repeats: false) { _ in
             MainActor.assumeIsolated { [weak self] in
                 guard let self, let model = self.live[id], !model.hover.inside, !model.evicted else { return }
                 // No fold-away to wait for: DWM's transition plays as the window hides.
@@ -277,7 +277,7 @@ final class CardsController: SurfaceController {
         let interval = Appearance.reduceMotion ? 0.2 : 1.0 / 30
         if moving, rimTimer == nil || rimTimerInterval != interval {
             rimTimer?.invalidate()
-            let timer = Timer(timeInterval: interval, repeats: true) { _ in
+            let timer = Timer.after(interval, repeats: true) { _ in
                 MainActor.assumeIsolated { [weak self] in self?.rimTick() }
             }
             timer.tolerance = interval / 4
@@ -417,7 +417,7 @@ final class CardsController: SurfaceController {
         let hold = holdDuration(model)
         if hold > 0 {
             let id = model.id
-            let timer = Timer(timeInterval: hold + 0.02, repeats: false) { _ in
+            let timer = Timer.after(hold + 0.02, repeats: false) { _ in
                 MainActor.assumeIsolated { [weak self] in
                     guard let self, let model = self.live[id], model.holdStart != nil else { return }
                     model.holdStart = nil
@@ -467,7 +467,7 @@ final class CardsController: SurfaceController {
         model.copiedUntil = Date().addingTimeInterval(1.6)
         model.copiedTimer?.invalidate()
         let id = model.id
-        let timer = Timer(timeInterval: 1.6, repeats: false) { _ in
+        let timer = Timer.after(1.6, repeats: false) { _ in
             MainActor.assumeIsolated { [weak self] in
                 guard let model = self?.live[id] else { return }
                 model.copiedTimer = nil

@@ -1,4 +1,5 @@
 import BreakpointCore
+import BreakpointRuntime
 import CBreakpointWin32
 import Foundation
 import WinSDK
@@ -90,7 +91,7 @@ public final class FrameClock {
 
     private func start() {
         guard timer == nil else { return }
-        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { _ in
+        let timer = Timer.after(1.0 / 60, repeats: true) { _ in
             MainActor.assumeIsolated { FrameClock.shared.tick() }
         }
         timer.tolerance = 0.002
