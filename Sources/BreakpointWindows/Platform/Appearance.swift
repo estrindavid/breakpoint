@@ -1,4 +1,4 @@
-import CBreakpointGraphics
+import CBreakpointWin32
 import Foundation
 import WinSDK
 
@@ -105,6 +105,6 @@ public enum Appearance {
 
 extension String {
     /// The string as a NUL-terminated UTF-16 buffer, for Win32 calls.
-    var wide: [WCHAR] { Array(utf16) + [0] }
+    public var wide: [WCHAR] { Array(utf16) + [0] }
 }
 

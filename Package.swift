@@ -53,26 +53,42 @@ let platformProducts: [Product] = [
     .executable(name: "BreakpointApp", targets: ["BreakpointWinApp"]),
 ]
 let platformTargets: [Target] = [
-    // Direct2D, DirectWrite and Direct3D 11 behind a small C API (their headers are C++ COM).
+    // Direct3D 11, DirectComposition, Direct2D and DirectWrite behind a small C API (their headers
+    // are C++ COM), and the few system calls whose headers Swift's WinSDK module lacks (WTS
+    // session notifications, power information, WinHTTP).
     .target(
-        name: "CBreakpointGraphics",
-        path: "Sources/CBreakpointGraphics",
-        cxxSettings: [.unsafeFlags(["-std=c++17"])],
+        name: "CBreakpointWin32",
+        path: "Sources/CBreakpointWin32",
+        cxxSettings: [
+            .unsafeFlags(["-std=c++17"]),
+            // Visual Studio 2026's STL asks for Clang 22; Swift 6.4's Clang is 21. This shim uses
+            // only plain containers, so the documented override is safe.
+            .define("_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"),
+        ],
         linkerSettings: [
             .linkedLibrary("d2d1"), .linkedLibrary("dwrite"), .linkedLibrary("d3d11"), .linkedLibrary("dxgi"),
             .linkedLibrary("dcomp"), .linkedLibrary("windowscodecs"), .linkedLibrary("dxguid"), .linkedLibrary("uuid"),
+            .linkedLibrary("wtsapi32"), .linkedLibrary("powrprof"), .linkedLibrary("winhttp"),
         ]
     ),
     // Win32: the tray icon, every window and pop-up, the design system, system services.
     .target(
         name: "BreakpointWindows",
-        dependencies: ["BreakpointCore", "BreakpointRuntime", "CBreakpointGraphics"],
+        dependencies: ["BreakpointCore", "BreakpointRuntime", "CBreakpointWin32"],
         path: "Sources/BreakpointWindows",
         linkerSettings: [
             .linkedLibrary("user32"), .linkedLibrary("gdi32"), .linkedLibrary("shell32"), .linkedLibrary("ole32"),
             .linkedLibrary("advapi32"), .linkedLibrary("winmm"), .linkedLibrary("dwmapi"), .linkedLibrary("shcore"),
             .linkedLibrary("wtsapi32"), .linkedLibrary("powrprof"), .linkedLibrary("uxtheme"), .linkedLibrary("comdlg32"),
+            .linkedLibrary("imm32"),
         ]
+    ),
+    // The release key's tool on Windows (scripts/update-signing.swift needs CryptoKit): the same
+    // commands, from Core's own signature code. Used by scripts/e2e.sh with throwaway keys.
+    .executableTarget(
+        name: "update-signing",
+        dependencies: ["BreakpointCore"],
+        path: "Sources/update-signing"
     ),
     // The tray app. The release script names the executable Breakpoint.exe.
     .executableTarget(

@@ -141,8 +141,13 @@ public struct UpdateRelease: Codable, Equatable, Hashable, Sendable {
 public enum UpdateFeed {
     /// The repository every release comes from. Download only ever opens pages inside it.
     public static let repository = URL(string: "https://github.com/estrindavid/breakpoint")!
-    /// The feed's file name on each release.
+    /// The feed's file name on each release: one per platform, so each app reads only releases of
+    /// its own archive (installed Macs keep reading `update-feed.json`, as before).
+    #if os(Windows)
+    public static let assetName = "update-feed-windows.json"
+    #else
     public static let assetName = "update-feed.json"
+    #endif
     /// The one address the app ever connects to.
     public static let url = URL(string: "\(repository.absoluteString)/releases/latest/download/\(assetName)")!
     /// Longer notes are cut to this many characters (plus "…").

@@ -5,6 +5,11 @@
 #   scripts/e2e.sh -v         # also print each flow's app trace on failure
 #   scripts/e2e.sh FLOW…      # only flows whose name contains one of the words (e.g. "away call")
 #
+# Runs on macOS and on Windows (Git Bash, which every Git for Windows install has; CI runs it
+# through scripts/windows/e2e.ps1). The flows are the same; a few that are about macOS itself (the
+# app bundle's in-place update and the one-line installer, file modes, quarantine) are skipped on
+# Windows, where scripts/windows/smoke.ps1 covers the packaged app and its installer.
+#
 # Every run uses fresh temporary homes (BREAKPOINT_HOME under $TMPDIR, short enough for the
 # socket path) and removes them at the end. Nothing touches the real home folder, the real socket
 # or any coding agent's real configuration.
@@ -19,6 +24,40 @@
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
+
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) PLATFORM=windows ;;
+  *) PLATFORM=macos ;;
+esac
+mac_only() { [[ $PLATFORM == macos ]]; }
+if [[ $PLATFORM == windows ]]; then
+  # The app's data folder under a home (BreakpointPaths.appSupport), the installed app's folder.
+  DATA_REL="AppData/Local/Breakpoint"
+  APPNAME="Breakpoint"
+  EXE=".exe"
+  sed_i() { sed -i "$@"; }
+  # Feeds made here are for this Windows build (scripts/make-update-feed.sh).
+  export MINIMUM_SYSTEM_VERSION=10.0
+else
+  DATA_REL="Library/Application Support/Breakpoint"
+  APPNAME="Breakpoint.app"
+  EXE=""
+  sed_i() { sed -i '' "$@"; }
+fi
+sha256() { if command -v shasum >/dev/null; then shasum -a 256 "$1"; else sha256sum "$1"; fi; }
+
+# raw_send SOCKET: writes stdin's bytes to the app's socket as one client and closes (malformed input).
+raw_send() {
+  if [[ $PLATFORM == windows ]]; then
+    # .NET's Unix-domain sockets (PowerShell 7), since Git Bash has no nc -U.
+    local data="$ROOT/raw-$RANDOM"; cat > "$data"
+    pwsh -NoProfile -NonInteractive -Command "\$s = [Net.Sockets.Socket]::new([Net.Sockets.AddressFamily]::Unix, [Net.Sockets.SocketType]::Stream, [Net.Sockets.ProtocolType]::Unspecified); \$s.Connect([Net.Sockets.UnixDomainSocketEndPoint]::new('$(cygpath -w "$1")')); [void]\$s.Send([IO.File]::ReadAllBytes('$(cygpath -w "$data")')); Start-Sleep -Milliseconds 200; \$s.Close()" >/dev/null 2>&1
+    rm -f "$data"
+  else
+    nc -U -w 1 "$1" >/dev/null 2>&1
+  fi
+}
+
 # Host-detection variables from the shell this runs in (e.g. a Claude Code or Cursor terminal)
 # would change how `emit` labels events; the flows set them explicitly where they matter.
 unset CLAUDECODE CLAUDE_PROJECT_DIR CURSOR_VERSION CURSOR_PROJECT_DIR CODEX_HOME
@@ -36,11 +75,17 @@ done
 echo "Building (debug)…"
 swift build >/dev/null 2>&1 || { swift build 2>&1 | tail -20; echo "build failed"; exit 1; }
 BIN="$(swift build --show-bin-path)"
-APP="$BIN/BreakpointApp"
-CLI="$BIN/breakpoint"
-command -v jq >/dev/null || { echo "jq is required (macOS 15+ ships /usr/bin/jq)"; exit 1; }
+[[ $PLATFORM == windows ]] && BIN="$(cygpath -u "$BIN")"
+APP="$BIN/BreakpointApp$EXE"
+CLI="$BIN/breakpoint$EXE"
+command -v jq >/dev/null || { echo "jq is required (macOS 15+ ships /usr/bin/jq; on Windows: winget install jqlang.jq)"; exit 1; }
 
-ROOT="$(mktemp -d -t bpe2e)"
+if [[ $PLATFORM == windows ]]; then
+  # A Windows path (C:/Users/…/Temp/…), which both bash and the native app and CLI understand.
+  ROOT="$(cygpath -m "$(mktemp -d)")"
+else
+  ROOT="$(mktemp -d -t bpe2e)"
+fi
 APP_PID=""
 PASSED=0
 FAILED=0
@@ -94,9 +139,9 @@ stop_app() {
 # new_home NAME [onboarded=1]: a fresh home; with onboarded=1 onboarding counts as done.
 new_home() {
   export BREAKPOINT_HOME="$ROOT/$1"
-  mkdir -p "$BREAKPOINT_HOME/Library/Application Support/Breakpoint"
+  mkdir -p "$BREAKPOINT_HOME/$DATA_REL"
   if [[ "${2:-1}" == 1 ]]; then
-    echo '{"version":1,"hasCompletedOnboarding":true}' > "$BREAKPOINT_HOME/Library/Application Support/Breakpoint/settings.json"
+    echo '{"version":1,"hasCompletedOnboarding":true}' > "$BREAKPOINT_HOME/$DATA_REL/settings.json"
   fi
 }
 
@@ -133,9 +178,10 @@ emit() { bp emit "$@"; sleep 0.15; }
 
 sum_files() {
   # Checksums of every file under the tools' folders and rc files (paths relative to the home).
-  (cd "$BREAKPOINT_HOME" && find .claude .cursor .codex .copilot .gemini .zshrc .bashrc .bash_profile .config \
-     -type f 2>/dev/null | sort | while read -r f; do printf '%s %s\n' "$(shasum -a 256 "$f" | cut -c1-16)" "$f"; done
-   ls -d .claude .cursor .codex .copilot .gemini .config 2>/dev/null; find . -type d -path './.c*' 2>/dev/null | sort)
+  (cd "$BREAKPOINT_HOME" && find .claude .cursor .codex .copilot .gemini .zshrc .bashrc .bash_profile .config Documents \
+     -type f 2>/dev/null | sort | while read -r f; do printf '%s %s\n' "$(sha256 "$f" | cut -c1-16)" "$f"; done
+   ls -d .claude .cursor .codex .copilot .gemini .config Documents 2>/dev/null
+   find . -type d \( -path './.c*' -o -path './Documents*' \) 2>/dev/null | sort)
 }
 
 wait_idle_integrations() {
@@ -193,7 +239,7 @@ flow_launch_and_onboarding() {
   expect_match "Install again, once the hooks reach the app, connects it" "$(q '.integrations.cursor.status')" "^connected"
   dbg action complete-onboarding
   sleep 0.3
-  expect "onboarding completed and saved" "$(jq -r .hasCompletedOnboarding "$BREAKPOINT_HOME/Library/Application Support/Breakpoint/settings.json")" "true"
+  expect "onboarding completed and saved" "$(jq -r .hasCompletedOnboarding "$BREAKPOINT_HOME/$DATA_REL/settings.json")" "true"
   expect "finishing onboarding offers the one-minute tour" "$(q .tour.step)" "offer"
   dbg tour skip
   sleep 0.2
@@ -862,7 +908,7 @@ flow_settings() {
   flow "settings take effect at once" settings
   dbg settings '{"eyesEveryMinutes": 10}'
   expect "cadence in the status" "$(bp status | jq -r .cadence.eyesEveryMinutes)" "10"
-  expect "saved" "$(jq -r .eyesEveryMinutes "$BREAKPOINT_HOME/Library/Application Support/Breakpoint/settings.json")" "10"
+  expect "saved" "$(jq -r .eyesEveryMinutes "$BREAKPOINT_HOME/$DATA_REL/settings.json")" "10"
   dbg timers 610 0
   emit agentStarted --source claude-code --session s1
   expect "the new cadence decides the next offer" "$(q .nudge.kind)" "eyes"
@@ -917,10 +963,11 @@ flow_cursor_relay() {
 
 flow_malformed() {
   flow "malformed input" malformed
-  SOCK="$(find "$BREAKPOINT_HOME" -type s -name '*.sock' | head -1)"
-  printf 'not json\n{"v":1}\n{"v":2,"type":"event"}\n{"v":1,"type":"event","event":{"kind":"warpSpeed","source":"x"}}\n' | nc -U -w 1 "$SOCK" >/dev/null 2>&1
-  head -c 70000 /dev/zero | tr '\0' 'x' | nc -U -w 1 "$SOCK" >/dev/null 2>&1
-  printf '{"v":1,"type":"event","event":{"kind":"agentStarted","source":"claude-code","sessionID":"ok1","ts":1}}\n' | nc -U -w 1 "$SOCK" >/dev/null 2>&1
+  SOCK="$BREAKPOINT_HOME/$DATA_REL/breakpoint.sock"
+  [[ ${#SOCK} -gt 103 ]] && SOCK="$BREAKPOINT_HOME/.breakpoint/run/bp.sock"
+  printf 'not json\n{"v":1}\n{"v":2,"type":"event"}\n{"v":1,"type":"event","event":{"kind":"warpSpeed","source":"x"}}\n' | raw_send "$SOCK"
+  head -c 70000 /dev/zero | tr '\0' 'x' | raw_send "$SOCK"
+  printf '{"v":1,"type":"event","event":{"kind":"agentStarted","source":"claude-code","sessionID":"ok1","ts":1}}\n' | raw_send "$SOCK"
   sleep 0.3
   expect "garbage, other versions, unknown kinds and oversized lines are dropped; a good line still lands" \
     "$(bp status | jq -c '[.sessions[].sessionID]')" '["ok1"]'
@@ -951,16 +998,16 @@ flow_integrations() {
   expect "every tool installed" "$(bp doctor | grep -cE '^ok  (Claude Code|Cursor|Codex CLI|Copilot CLI|Gemini CLI|Shell): ')" "6"
   for tool in claude-code cursor codex copilot gemini shell; do bp uninstall "$tool" >/dev/null 2>&1; done
   expect "breakpoint uninstall restores every file byte for byte" "$(sum_files)" "$before"
-  expect "file mode kept" "$(stat -f %Lp "$H/.zshrc")" "600"
+  mac_only && expect "file mode kept" "$(stat -f %Lp "$H/.zshrc")" "600"
   # The same through the app (the Settings and onboarding path, off the main thread).
   for tool in claude-code cursor codex copilot gemini shell; do dbg action install "$tool"; wait_idle_integrations; done
   expect "app installs: all six installed" "$(q '[.integrations | to_entries[] | select(.value.state=="installed")] | length')" "6"
   expect "and each one checked and Connected, with no event from any tool" \
     "$(q '[.integrations | to_entries[] | select(.value.status=="connected(lastEvent: nil)" and .value.connectedAt != null)] | length')" "6"
   expect_match "the Codex trust step is passed to the UI" "$(q '.integrations.codex.notes | join(" ")')" "/hooks"
-  expect_match "the shell note is passed to the UI" "$(q '.integrations.shell.notes | join(" ")')" "new terminal"
+  expect_match "the shell note is passed to the UI" "$(q '.integrations.shell.notes | join(" ")')" "new (terminal|PowerShell)"
   # Hand-edited entry → "modified", which offers Remove.
-  sed -i '' 's/--stdin-json/--stdin-json --edited/' "$H/.claude/settings.json"
+  sed_i 's/--stdin-json/--stdin-json --edited/' "$H/.claude/settings.json"
   dbg action open-settings; sleep 0.5
   expect "a hand-edited install reads as modified" "$(q '.integrations["claude-code"].state')" "modified"
   for tool in claude-code cursor codex copilot gemini shell; do dbg action uninstall "$tool"; wait_idle_integrations; done
@@ -988,7 +1035,7 @@ flow_delete_all() {
   dbg timers 1250 3050
   dbg action start eyes; dbg advance 21
   dbg action install claude-code; wait_idle_integrations
-  LEDGER="$H/Library/Application Support/Breakpoint/integrations.json"
+  LEDGER="$H/$DATA_REL/integrations.json"
   expect "the ledger records the empty original" "$([[ -f "$LEDGER" ]] && echo yes)" "yes"
   dbg action delete-all-data
   expect "history deleted" "$(q '.history | length')" "0"
@@ -1015,7 +1062,7 @@ flow_occupied_socket() {
   FLOW="something else at the socket path"; FLOW_FAILED=0
   echo; echo "== $FLOW"
   new_home occupied
-  SOCKDIR="$BREAKPOINT_HOME/Library/Application Support/Breakpoint"
+  SOCKDIR="$BREAKPOINT_HOME/$DATA_REL"
   SOCKFILE="$SOCKDIR/breakpoint.sock"
   [[ ${#SOCKFILE} -gt 103 ]] && SOCKFILE="$BREAKPOINT_HOME/.breakpoint/run/bp.sock"
   mkdir -p "$(dirname "$SOCKFILE")"; echo "not a socket" > "$SOCKFILE"
@@ -1032,7 +1079,7 @@ flow_signals() {
   stop_app
   out="$("$APP" --signals 2>&1)"
   expect_match "--signals prints the real report and exits" "$out" "Microphone in use: (yes|no)"
-  expect_match "one line per audio device, no names" "$out" "Audio devices: [0-9]+"
+  mac_only && expect_match "one line per audio device, no names" "$out" "Audio devices: [0-9]+"
   # A timer preset at launch.
   launch --debug-timers 1199,10
   expect "--debug-timers presets the timers" "$(q '.timers.screen >= 1199 and .timers.screen < 1203')" "true"
@@ -1101,7 +1148,7 @@ flow_routines() {
   expect "stretches are recorded as usual" "$(q '[.history[] | select(.kind=="move")] | length')" "13"
   dbg action delete-all-data
   expect "Delete all data forgets the rotation" \
-    "$(q .rotation.stretchesStarted) $([[ -f "$BREAKPOINT_HOME/Library/Application Support/Breakpoint/rotation.json" ]] && echo kept || echo gone)" "0 gone"
+    "$(q .rotation.stretchesStarted) $([[ -f "$BREAKPOINT_HOME/$DATA_REL/rotation.json" ]] && echo kept || echo gone)" "0 gone"
   end_flow
 }
 
@@ -1215,11 +1262,14 @@ flow_charm() {
   # The command-line tool's face.
   expect_match "--version piped: one plain, parseable line" "$(bp --version)" "^breakpoint [0-9]+\.[0-9]+\.[0-9]+$"
   local tty
+  # A terminal for the CLI (macOS's script(1)); Windows' console mode is covered by the CLI's own tests.
+  if mac_only; then
   tty="$(TERM=xterm-256color script -q /dev/null "$CLI" --version | tr -d '\r')"
   expect_match "--version in a terminal: the mark in mint beside the version" "$tty" $'\e\\[38;5;79m▄███████████▄'
   expect_match "…with the version on its own" "$tty" "  breakpoint [0-9]+\.[0-9]+\.[0-9]+"
   tty="$(NO_COLOR=1 TERM=xterm-256color script -q /dev/null "$CLI" --version | tr -d '\r')"
   expect "NO_COLOR: the mark without colour" "$([[ "$tty" == *▄███* && "$tty" != *$'\e'* ]] && echo plain)" "plain"
+  fi
   expect "doctor ends calmly when all is well" "$(bp doctor | tail -1)" "Everything checks out."
   end_flow
 }
@@ -1450,7 +1500,18 @@ flow_updates() {
 
 # fake_app FOLDER VERSION [IDENTIFIER]: a stand-in Breakpoint.app (Info.plist and an executable: a
 # script that exits 0, or a copy of $FAKE_EXECUTABLE when set, for the installer's processor check).
+# On Windows a stand-in install folder: breakpoint-app.json, Breakpoint.exe and bin/breakpoint.exe
+# (the PE signature is all the checks look at).
 fake_app() {
+  if [[ $PLATFORM == windows ]]; then
+    local folder="$1/Breakpoint"
+    mkdir -p "$folder/bin"
+    printf '{\n  "identifier": "%s",\n  "version": "%s",\n  "executable": "Breakpoint.exe"\n}\n' \
+      "${3:-com.breakpointapp.Breakpoint}" "$2" > "$folder/breakpoint-app.json"
+    printf 'MZ stand-in\n' > "$folder/Breakpoint.exe"
+    printf 'MZ stand-in\n' > "$folder/bin/breakpoint.exe"
+    return
+  fi
   local app="$1/Breakpoint.app"
   mkdir -p "$app/Contents/MacOS"
   cat > "$app/Contents/Info.plist" <<PLIST
@@ -1468,9 +1529,18 @@ PLIST
   fi
   chmod +x "$app/Contents/MacOS/Breakpoint"
 }
-app_version() { /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$1/Contents/Info.plist" 2>/dev/null; }
-# signing_tool: scripts/update-signing.swift, compiled once per run.
+app_version() {
+  if [[ $PLATFORM == windows ]]; then jq -r .version "$1/breakpoint-app.json" 2>/dev/null; return; fi
+  /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$1/Contents/Info.plist" 2>/dev/null
+}
+# signing_tool: scripts/update-signing.swift, compiled once per run (Windows: the update-signing
+# target, the same commands from Core's own signature code).
 signing_tool() {
+  if [[ $PLATFORM == windows ]]; then
+    [[ -x "$BIN/update-signing.exe" ]] || swift build --product update-signing >/dev/null 2>&1
+    echo "$BIN/update-signing.exe"
+    return
+  fi
   [[ -x "$ROOT/update-signing" ]] || swiftc -O scripts/update-signing.swift -o "$ROOT/update-signing" 2>/dev/null
   echo "$ROOT/update-signing"
 }
@@ -1479,7 +1549,11 @@ signing_tool() {
 release_dir() {
   local dir="$1" src="$1/src-$2"
   mkdir -p "$dir"; fake_app "$src" "$2"
-  ditto -c -k --norsrc --noextattr --keepParent "$src/Breakpoint.app" "$dir/Breakpoint-$2.zip"
+  if [[ $PLATFORM == windows ]]; then
+    "$SYSTEMROOT/System32/tar.exe" -a -c -f "$dir/Breakpoint-$2.zip" -C "$src" "$APPNAME"
+  else
+    ditto -c -k --norsrc --noextattr --keepParent "$src/Breakpoint.app" "$dir/Breakpoint-$2.zip"
+  fi
   local sig=""
   [[ -n "${4:-}" ]] && sig="$(UPDATE_SIGNING_KEY="$4" "$(signing_tool)" sign "$2" "$dir/Breakpoint-$2.zip")"
   scripts/make-update-feed.sh "$2" "$3" "$dir/Breakpoint-$2.zip" "$sig" > "$dir/update-feed.json"
@@ -1498,7 +1572,7 @@ flow_update_install() {
   APPS="$BREAKPOINT_HOME/Applications"; fake_app "$APPS" "$CURRENT"
   U='.update | "\(.phase) \(.available) \(.canInstall)"'
   CARD='[.cards[] | select(.kind == "update") | .text] | join(",")'
-  dbg update-location "$APPS/Breakpoint.app"
+  dbg update-location "$APPS/$APPNAME"
 
   release_dir "$BREAKPOINT_HOME/r1" 9.9.8 "Signed with another key." "$OTHER"
   dbg update-feed "$BREAKPOINT_HOME/r1/update-feed.json"
@@ -1512,8 +1586,8 @@ flow_update_install() {
   expect "with the key, Update installs in place" "$(q "$U")" "available 9.9.8 true"
   dbg action install-update
   expect "a signature from another key: refused before unpacking, the app untouched" \
-    "$(q '.update | "\(.phase) \(.detail)"') | $(app_version "$APPS/Breakpoint.app") | $(ls -A "$APPS" | tr '\n' ' ')" \
-    "installFailed The download didn't match its signature, so Breakpoint didn't install it. | $CURRENT | Breakpoint.app "
+    "$(q '.update | "\(.phase) \(.detail)"') | $(app_version "$APPS/$APPNAME") | $(ls -A "$APPS" | tr '\n' ' ')" \
+    "installFailed The download didn't match its signature, so Breakpoint didn't install it. | $CURRENT | $APPNAME "
   expect "that version is not offered for install again" "$(q '"\(.update.installFailedVersion) \(.update.canInstall)"')" "9.9.8 false"
 
   release_dir "$BREAKPOINT_HOME/r2" 9.9.9 "Breaks now wait for every agent." "$KEY"
@@ -1521,7 +1595,7 @@ flow_update_install() {
   dbg update-feed "$BREAKPOINT_HOME/r2/update-feed.json"
   dbg action check-updates
   dbg action install-update
-  expect "a changed archive: refused" "$(q '.update | "\(.phase) \(.detail)"') | $(app_version "$APPS/Breakpoint.app")" \
+  expect "a changed archive: refused" "$(q '.update | "\(.phase) \(.detail)"') | $(app_version "$APPS/$APPNAME")" \
     "installFailed The download didn't match its signature, so Breakpoint didn't install it. | $CURRENT"
 
   release_dir "$BREAKPOINT_HOME/r3" 9.9.10 "Breaks now wait for every agent." "$KEY"
@@ -1530,20 +1604,24 @@ flow_update_install() {
   dbg action start move
   dbg action install-update
   expect "never during a break: it waits, and Update stays on offer" \
-    "$(q '.update | "\(.phase) \(.canInstall)"') | $(app_version "$APPS/Breakpoint.app")" "available true | $CURRENT"
+    "$(q '.update | "\(.phase) \(.canInstall)"') | $(app_version "$APPS/$APPNAME")" "available true | $CURRENT"
   expect_log "why it waited" "update install stopped: breakInProgress"
   dbg action skip; dbg advance 4; dbg action skip
   dbg action install-update
-  STAGED="$(ls -d "$APPS"/.Breakpoint-update-*/Breakpoint.app 2>/dev/null | head -1)"
+  STAGED="$(ls -d "$APPS"/.Breakpoint-update-*/"$APPNAME" 2>/dev/null | head -1)"
   expect "after the break: verified, unpacked next to the app, swapped" \
-    "$(app_version "$APPS/Breakpoint.app") | old copy kept: $(app_version "$STAGED")" "9.9.10 | old copy kept: $CURRENT"
+    "$(app_version "$APPS/$APPNAME") | old copy kept: $(app_version "$STAGED")" "9.9.10 | old copy kept: $CURRENT"
   expect "and it hands over to the relaunch helper (not in the harness)" "$(q '.update | "\(.phase) \(.detail)"')" "installing reopening"
-  expect_log "the helper runs from the old copy" "reopen: .*\.Breakpoint-update-.*/Breakpoint.app/Contents/Helpers/breakpoint update-relaunch --pid"
+  if [[ $PLATFORM == windows ]]; then
+    expect_log "the helper runs from the old copy" "reopen: .*\.Breakpoint-update-.*/Breakpoint/bin/breakpoint.exe update-relaunch --pid"
+  else
+    expect_log "the helper runs from the old copy" "reopen: .*\.Breakpoint-update-.*/Breakpoint.app/Contents/Helpers/breakpoint update-relaunch --pid"
+  fi
   expect "pending-update.json records the swap" \
-    "$(jq -r '"\(.fromVersion) → \(.toVersion)"' "$BREAKPOINT_HOME/Library/Application Support/Breakpoint/pending-update.json")" \
+    "$(jq -r '"\(.fromVersion) → \(.toVersion)"' "$BREAKPOINT_HOME/$DATA_REL/pending-update.json")" \
     "$CURRENT → 9.9.10"
   expect "downloads: one per Update click that got past the checks before it" "$(q .update.downloads)" "3"
-  expect "nothing was marked quarantined" "$(xattr -lr "$APPS" | grep -c com.apple.quarantine)" "0"
+  mac_only && expect "nothing was marked quarantined" "$(xattr -lr "$APPS" | grep -c com.apple.quarantine)" "0"
   end_flow
 }
 
@@ -1551,7 +1629,7 @@ flow_update_reopened() {
   flow "after an in-place update: the new copy confirms, or the old one says it is back" reopened
   local CURRENT PENDING SWAP
   CURRENT="$(bp --version | awk '{print $NF}')"
-  PENDING="$BREAKPOINT_HOME/Library/Application Support/Breakpoint/pending-update.json"
+  PENDING="$BREAKPOINT_HOME/$DATA_REL/pending-update.json"
   SWAP='"swapped": {"installed": "file:///nowhere/Breakpoint.app", "backup": "file:///nowhere/old.app", "stagingDirectory": "file:///nowhere/s"}'
   stop_app
   echo "{\"fromVersion\": \"0.0.1\", \"toVersion\": \"$CURRENT\", $SWAP, \"startedAt\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > "$PENDING"
@@ -1575,20 +1653,22 @@ flow_update_automatic() {
   KEY="$("$SIGN" keygen "$BREAKPOINT_HOME/release.pub")"
   APPS="$BREAKPOINT_HOME/Applications"; fake_app "$APPS" "$CURRENT"
   release_dir "$BREAKPOINT_HOME/r" 9.9.9 "Quietly." "$KEY"
-  dbg update-location "$APPS/Breakpoint.app"; dbg update-key "$(cat "$BREAKPOINT_HOME/release.pub")"
+  dbg update-location "$APPS/$APPNAME"; dbg update-key "$(cat "$BREAKPOINT_HOME/release.pub")"
   dbg update-feed "$BREAKPOINT_HOME/r/update-feed.json"
   dbg settings '{"installUpdatesAutomatically": true}'
   dbg call mic
   dbg advance 125
-  expect "not during a call" "$(app_version "$APPS/Breakpoint.app") $(q .update.downloads)" "$CURRENT 0"
+  expect "not during a call" "$(app_version "$APPS/$APPNAME") $(q .update.downloads)" "$CURRENT 0"
   dbg call none
   dbg advance 3
   expect "then: checked, installed, no prompt" \
-    "$(app_version "$APPS/Breakpoint.app") $(q '[.cards[] | select(.kind == "update")] | length') $(q .update.detail)" "9.9.9 0 reopening"
+    "$(app_version "$APPS/$APPNAME") $(q '[.cards[] | select(.kind == "update")] | length') $(q .update.detail)" "9.9.9 0 reopening"
   end_flow
 }
 
 flow_install_script() {
+  # macOS's install.sh; Windows' install.ps1 is exercised by scripts/windows/smoke.ps1.
+  mac_only || return 0
   flow "the one-line installer: checks the download, installs, opens nothing" installer
   local REL DEST OUT
   REL="$BREAKPOINT_HOME/release"; DEST="$BREAKPOINT_HOME/Applications"

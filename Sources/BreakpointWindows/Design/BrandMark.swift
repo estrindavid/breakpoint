@@ -1,5 +1,5 @@
 import BreakpointCore
-import CBreakpointGraphics
+import CBreakpointWin32
 import Foundation
 import WinSDK
 

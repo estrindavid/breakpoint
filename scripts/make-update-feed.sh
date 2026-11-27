@@ -9,6 +9,9 @@
 # The release workflow attaches the output to every release as update-feed.json; apps read
 # https://github.com/<repo>/releases/latest/download/update-feed.json. The repository address comes
 # from UpdateFeed.repository in Sources/BreakpointCore/Models/Updates.swift. Needs jq.
+#
+# The minimum system version is macOS's (MINIMUM_SYSTEM in scripts/build-app.sh) unless
+# MINIMUM_SYSTEM_VERSION is set: the Windows feed (update-feed-windows.json) passes Windows' own.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -21,10 +24,14 @@ SIGNATURE="${4:-}"
 
 REPO_URL="$(sed -n 's/.*static let repository = URL(string: "\(.*\)")!.*/\1/p' Sources/BreakpointCore/Models/Updates.swift)"
 [[ -n "$REPO_URL" ]] || { echo "error: could not read UpdateFeed.repository" >&2; exit 1; }
-MIN_MACOS="$(sed -n 's/^MINIMUM_SYSTEM="\([0-9.]*\)"$/\1/p' scripts/build-app.sh)"
-[[ "$MIN_MACOS" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || { echo "error: could not read MINIMUM_SYSTEM from scripts/build-app.sh" >&2; exit 1; }
-SIZE="$(stat -f %z "$ARCHIVE")"
-SHA256="$(shasum -a 256 "$ARCHIVE" | cut -d' ' -f1)"
+MIN_SYSTEM="${MINIMUM_SYSTEM_VERSION:-$(sed -n 's/^MINIMUM_SYSTEM="\([0-9.]*\)"$/\1/p' scripts/build-app.sh)}"
+[[ "$MIN_SYSTEM" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || { echo "error: could not read MINIMUM_SYSTEM from scripts/build-app.sh" >&2; exit 1; }
+SIZE="$(wc -c < "$ARCHIVE" | tr -d ' ')"
+if command -v shasum >/dev/null; then
+  SHA256="$(shasum -a 256 "$ARCHIVE" | cut -d' ' -f1)"
+else
+  SHA256="$(sha256sum "$ARCHIVE" | cut -d' ' -f1)"
+fi
 
 jq -n \
   --arg version "$VERSION" \
@@ -34,7 +41,7 @@ jq -n \
   --argjson size "$SIZE" \
   --arg sha256 "$SHA256" \
   --arg signature "$SIGNATURE" \
-  --arg minimum "$MIN_MACOS" \
+  --arg minimum "$MIN_SYSTEM" \
   --arg published "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   '{version: $version, notes: $notes, page: $page, archive: $archive, size: $size, sha256: $sha256}
    + (if $signature == "" then {} else {signature: $signature} end)
