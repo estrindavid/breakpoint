@@ -1973,8 +1973,18 @@ ALL=(launch_and_onboarding tour hints_after_tour hints_after_skipped_tour hints_
      malformed integrations delete_all second_copy occupied_socket signals
      resume_outcome resume_background resume_needs_you_goes resume_commands totals charm updates
      update_install update_reopened update_automatic install_script routines pacing status_line)
+# E2E_SHARD=I/N runs every Nth flow from the I-th (0-based), so CI can split the flows across
+# parallel jobs; unset, every wanted flow runs.
+SHARD_INDEX=0; SHARD_COUNT=1
+if [[ -n "${E2E_SHARD:-}" ]]; then
+  SHARD_INDEX="${E2E_SHARD%/*}"; SHARD_COUNT="${E2E_SHARD#*/}"
+  [[ "$SHARD_INDEX" =~ ^[0-9]+$ && "$SHARD_COUNT" =~ ^[1-9][0-9]*$ && $SHARD_INDEX -lt $SHARD_COUNT ]] ||
+    { echo "E2E_SHARD must be I/N with 0 <= I < N (got $E2E_SHARD)"; exit 1; }
+fi
+position=0
 for name in "${ALL[@]}"; do
-  wanted "$name" && "flow_$name"
+  if (( position % SHARD_COUNT == SHARD_INDEX )); then wanted "$name" && "flow_$name"; fi
+  position=$((position + 1))
 done
 
 echo

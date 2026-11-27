@@ -99,10 +99,36 @@ jobs:
       - name: Unit tests
         run: scripts/windows/test.ps1 -CheckWarnings
 
-      - name: End-to-end flows
-        run: scripts/windows/e2e.ps1 -Verbose
-
       - name: Package as released, then run it without the toolchain
         run: |
           scripts/windows/package.ps1 -Version (scripts/windows/version.ps1) -OutDir build/release
           scripts/windows/smoke.ps1 -Zip (Get-ChildItem build/release/Breakpoint-*-windows-x64.zip).FullName
+
+  windows-e2e:
+    # The end-to-end flows start the app and the CLI hundreds of times, and starting a process on a
+    # Windows runner is slow: the flows are split across four parallel jobs (E2E_SHARD).
+    name: End-to-end (Windows ${{ matrix.shard }}/4)
+    runs-on: windows-2025
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Swift toolchain
+        uses: compnerd/gha-setup-swift@9ff1ee4c44888c5817fc14d1b257ac8cabb4935f # v0.5.1
+        with:
+          swift-version: swift-6.4.3-release
+          swift-build: 6.4.3-RELEASE
+
+      - name: End-to-end flows
+        env:
+          E2E_SHARD: ${{ matrix.shard }}/4
+        run: scripts/windows/e2e.ps1 -Verbose
