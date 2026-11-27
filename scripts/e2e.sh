@@ -1830,13 +1830,15 @@ flow_popover() {
   flow "the popover closes when you leave it" popover
   dbg settings '{"showHints": true}'
   dbg action activate
+  # Straight after opening, before anything else: the half second in which a Space switch is
+  # ignored is real time, and every command here starts a process (slow on a Windows runner).
+  dbg popover space
+  expect "a Space switch caused by opening it does not close it" "$(q .popover.open)" "true"
   expect "the mark opens the popover" "$(q .popover.open)" "true"
   expect "the first time with its hint" "$(q .popover.hint)" "$POPOVER_HINT"
   dbg popover menu-bar-hidden
   expect "the hint keeps it open when the menu bar slides away" "$(q .popover.open)" "true"
   expect_log "and the trace says so" "popover stays open after the menu bar sliding away"
-  dbg popover space
-  expect "a Space switch caused by opening it does not close it" "$(q .popover.open)" "true"
   dbg advance 1
   dbg popover click-outside
   expect "a click outside closes it" "$(q .popover.open)" "false"

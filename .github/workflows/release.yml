@@ -40,6 +40,9 @@ concurrency:
 jobs:
   windows:
     name: Windows build
+    # Builds and tests only: it never publishes, so it cannot write to the repository.
+    permissions:
+      contents: read
     runs-on: windows-2025
     timeout-minutes: 60
     defaults:
@@ -52,10 +55,8 @@ jobs:
           persist-credentials: false
 
       - name: Swift toolchain
-        uses: compnerd/gha-setup-swift@9ff1ee4c44888c5817fc14d1b257ac8cabb4935f # v0.5.1
-        with:
-          swift-version: swift-6.4.3-release
-          swift-build: 6.4.3-RELEASE
+        # Our own script, not a marketplace action: see its first lines.
+        run: scripts/windows/setup-swift.ps1 -Version swift-6.4.3-release -Build 6.4.3-RELEASE
 
       - name: Tests and end-to-end flows
         run: |

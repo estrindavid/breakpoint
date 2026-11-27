@@ -39,10 +39,10 @@ echo "ok: quit cleanly (exit 0)"
 LOG="$(log show --style compact --info --start "$START" --predicate 'subsystem == "com.breakpointapp.Breakpoint"' 2> /dev/null || true)"
 grep -q "activation policy: accessory" <<< "$LOG" || { echo "FAIL: no accessory activation policy in the log" >&2; exit 1; }
 # The item exists either way; macOS hides it (off screen) when the menu bar is full.
-grep -qE "Status item frame: (\(|none \(hidden by macOS: frame)" <<< "$LOG" || { echo "FAIL: no status item in the log" >&2; exit 1; }
-if grep -q "Status item frame: none (hidden" <<< "$LOG"; then
+grep -qE "Status item: (frame|none \(hidden by macOS: frame)" <<< "$LOG" || { echo "FAIL: no status item in the log" >&2; exit 1; }
+if grep -q "Status item: none (hidden" <<< "$LOG"; then
   echo "note: macOS is hiding the status item (menu bar full?); the popover then opens from the top right"
 fi
 grep -q "Breakpoint stopped" <<< "$LOG" || { echo "FAIL: applicationWillTerminate did not run" >&2; exit 1; }
-grep "Status item frame" <<< "$LOG" | tail -1 | sed 's/^.*Status item/ok: status item/'
+grep "Status item: " <<< "$LOG" | tail -1 | sed 's/^.*Status item/ok: status item/'
 echo "PASS"
