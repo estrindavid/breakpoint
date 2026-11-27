@@ -7,5 +7,5 @@ import Foundation
 /// `nil` (no key yet): this copy only tells you about new versions and opens the download page; it
 /// never installs one. See docs/RELEASING.md for what to do if the key is lost or leaks.
 public enum UpdateKey {
-    public static let publicKeyBase64: String? = nil // written by scripts/release-keygen.sh
+    public static let publicKeyBase64: String? = "Sne3qcSxQgb+Ttw4T3mdaYhmUVzfzy3Ybgq+H29hX3w=" // written by scripts/release-keygen.sh
 }
