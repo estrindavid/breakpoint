@@ -16,7 +16,7 @@ public enum TourCopy {
                              primary: "Take the tour", secondary: "Not now")
         case .mark:
             return TourCoach(title: "This is Breakpoint",
-                             text: "It lives in your menu bar. The mark changes with your agent and your breaks.",
+                             text: "It lives in \(BreakpointPlatform.markHome). The mark changes with your agent and your breaks.",
                              primary: "Next")
         case .nudge:
             return TourCoach(title: "How a break is offered",

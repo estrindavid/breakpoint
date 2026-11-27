@@ -32,6 +32,28 @@ same code on both; the unit tests (613) and the end-to-end flows (`scripts/e2e.s
   Onboarding use Mica and follow the app mode (light or dark). With transparency effects off, or
   on Windows 10, they are drawn opaque.
 - Type: Segoe UI Variable (Text for body sizes, Display for titles and numbers) for SF Pro.
+- Glyphs: the break kinds and the agent sparkle are drawn as vectors in the brand's line style;
+  every other SF Symbol the shared models name maps to its Segoe Fluent Icons equivalent
+  (`Design/Glyphs.swift`), so controls look like Windows' own.
+- Every surface is a pure `draw(canvas, controls, state)` function over immediate-mode controls
+  (Tab and Shift+Tab, Enter, Space, arrows, Esc; a focus ring only once the keyboard is used, as
+  Windows does). `Breakpoint.exe --debug-snapshots DIR` renders each one offscreen, in every state
+  the shared previews describe, with the same code the windows run.
+- Nothing redraws unless something changed; a window animates (at the display's rate) only while
+  something on it visibly moves, and stops by itself.
+
+## The tray icon and the flyout (SPEC §3.7, §3.8)
+
+- The notification-area icon draws the same mark states and badges as the menu bar, by shape, in
+  the taskbar's own colour (white on a dark taskbar, near-black on a light one, following "Choose
+  your Windows mode"); knocked-out parts are real holes in the icon. The working badge breathes;
+  each mark cue plays once; both stop under "Animation effects" off and while the session is locked.
+- Windows shows no text beside a tray icon: the menu-bar text (SPEC §3.7) joins the tooltip.
+- Left click (or Enter on the focused icon) opens the flyout: the popover's content, from the same
+  `PopoverModel`, above the taskbar at the icon, 12 DIPs from the taskbar and the screen's edge. It
+  closes through the same `PopoverPolicy` as the Mac popover (a click elsewhere, Esc, a display
+  change). Right click opens the menu; "Why not now?" is a greyed line at its top, since Windows has
+  no Option-click.
 
 ## Signals (SPEC §2.4) without a hook
 

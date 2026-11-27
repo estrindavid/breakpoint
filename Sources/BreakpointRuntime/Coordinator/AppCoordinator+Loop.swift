@@ -542,7 +542,7 @@ extension AppCoordinator {
         let lesson = HintPolicy.resumeLesson(needsYou: content.needsYou)
         if takeHint(lesson) {
             content.hint = lesson == .resumeNeedsYou
-                ? HintCopy.resumeNeedsYou(dismissKey: settings.nudgeHotkeys ? HotKeyCombo.nudgeDismiss.display : nil)
+                ? HintCopy.resumeNeedsYou(dismissKey: settings.nudgeHotkeys ? HotKeyCombo.nudgeDismiss.platformDisplay : nil)
                 : HintCopy.resumeCard
         }
         cards.append(CardState(content: .resume(content), createdAt: now))

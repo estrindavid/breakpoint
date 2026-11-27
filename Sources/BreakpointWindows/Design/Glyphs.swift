@@ -80,7 +80,8 @@ public enum Glyphs {
                 canvas.circle(PointF(x: centre.x + Float(dx) * size * 0.6, y: centre.y + (Float(dy) - 0.2) * size * 0.6), radius: r, colour)
             }
         default:
-            let glyph = fontGlyphs[symbol] ?? "\u{E7C3}" // Page
+            // A single character names an icon-font glyph directly; anything unknown is a page.
+            let glyph = fontGlyphs[symbol] ?? (symbol.unicodeScalars.count == 1 ? symbol : "\u{E7C3}")
             let box = RectF(x: centre.x - size, y: centre.y - size * 0.75, width: size * 2, height: size * 1.5)
             canvas.text(glyph, in: box, style: TextStyle(size: size, align: .center, family: iconFamily), colour)
         }

@@ -4,6 +4,16 @@ import Testing
 
 @Suite("Settings and SettingsStore (SPEC §3.9)")
 struct SettingsTests {
+    @Test func shortcutsAreSpelledTheWayThePlatformNamesKeys() {
+        #if os(Windows)
+        #expect(HotKeyCombo.nudgeDismiss.platformDisplay == "Ctrl+Alt+Win+.")
+        #expect(HotKeyCombo.nudgeStart.platformDisplay == "Ctrl+Alt+Win+B")
+        #expect(HotKeyCombo(keyCode: 0x2B, carbonModifiers: 0, display: "⌘⇧,").platformDisplay == "Shift+Win+,")
+        #else
+        #expect(HotKeyCombo.nudgeDismiss.platformDisplay == "⌃⌥⌘.")
+        #endif
+    }
+
     @Test func defaultsMatchTheSpecTable() {
         let s = Settings.defaults
         #expect(s.version == 1)

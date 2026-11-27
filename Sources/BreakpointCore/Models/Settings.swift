@@ -31,6 +31,20 @@ public struct HotKeyCombo: Codable, Equatable, Hashable, Sendable {
         self.display = display
     }
 
+    /// How this platform writes the shortcut in sentences: the stored macOS form ("⌃⌥⌘.") on
+    /// macOS; on Windows, the keys Windows names ("Ctrl+Alt+Win+."), in the order Windows writes
+    /// them (⌃ Ctrl, ⌥ Alt, ⇧ Shift, ⌘ Win), as the Windows app's keycaps do.
+    public var platformDisplay: String {
+        #if os(Windows)
+        let names: [(Character, String)] = [("⌃", "Ctrl"), ("⌥", "Alt"), ("⇧", "Shift"), ("⌘", "Win")]
+        let present = Set(display.filter { glyph in names.contains { $0.0 == glyph } })
+        let key = String(display.filter { glyph in !names.contains { $0.0 == glyph } })
+        return (names.filter { present.contains($0.0) }.map(\.1) + [key.uppercased()]).joined(separator: "+")
+        #else
+        return display
+        #endif
+    }
+
     // Carbon modifier bits (from Carbon.HIToolbox.Events), duplicated here so Core stays Foundation-only.
     public static let cmdKey: UInt32 = 1 << 8
     public static let shiftKey: UInt32 = 1 << 9

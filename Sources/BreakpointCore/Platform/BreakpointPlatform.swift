@@ -17,6 +17,9 @@ public enum BreakpointPlatform {
     /// "Mac" or "PC", as in "not found on this Mac".
     public static var computerName: String { isWindows ? "PC" : "Mac" }
 
+    /// Where the mark lives: "your menu bar" or "the notification area".
+    public static var markHome: String { isWindows ? "the notification area" : "your menu bar" }
+
     /// Where the app keeps its data, as the person would find it ("~/Library/Application Support/
     /// Breakpoint" or "%LOCALAPPDATA%\Breakpoint").
     public static var dataFolderDisplayName: String {

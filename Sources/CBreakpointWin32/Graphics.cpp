@@ -246,8 +246,11 @@ int32_t bp_surface_end(BPSurface *s) {
 void bp_push_clip_rounded(BPSurface *s, BPRect rect, float radius) {
     if (!s) return;
     auto geometry = roundedGeometry(rect, radius);
+    // The mask is in the current user space: the world transform already applies to it, so the
+    // mask transform stays identity (passing the world transform again moved clips drawn inside
+    // a transform).
     D2D1_LAYER_PARAMETERS1 params = D2D1::LayerParameters1(D2D1::InfiniteRect(), geometry.Get(),
-                                                           D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, currentTransform(s));
+                                                           D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix());
     s->dc->PushLayer(params, nullptr);
 }
 
